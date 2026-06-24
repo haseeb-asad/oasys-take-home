@@ -1,0 +1,14 @@
+*.txt
+!requirements.txt
+*.pdf
+.claude
+CLAUDE.md
+planning/*
+planning
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
