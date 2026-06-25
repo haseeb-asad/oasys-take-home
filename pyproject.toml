@@ -36,4 +36,7 @@ python_version = "3.14"
 strict = true
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+addopts = "--import-mode=importlib"
+testpaths = ["app", "tests"]
+# Per-domain unit tests live in app/<context>/tests/ (TDD); cross-context
+# scenario/integration tests live in the top-level tests/.
