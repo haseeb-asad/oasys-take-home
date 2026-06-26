@@ -13,6 +13,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.authz import ActorContext, Capability, Forbidden, ProfileType, ResourceRef
 from app.care.domain.exceptions import (
     EpisodeClosed,
     NotACurrentMember,
@@ -44,6 +45,11 @@ def _client() -> TestClient:
     def _ov() -> None:
         raise OverlappingPeriod(_ID)
 
+    @app.get("/forbidden")
+    def _fb() -> None:
+        actor = ActorContext(identity_id=_ID, profile_type=ProfileType.PROVIDER)
+        raise Forbidden(actor, Capability.WRITE_CLINICAL, ResourceRef.for_client(_ID))
+
     @app.get("/value-error")
     def _ve() -> None:
         raise ValueError("bad input")
@@ -58,6 +64,7 @@ def _client() -> TestClient:
 @pytest.mark.parametrize(
     ("path", "status"),
     [
+        ("/forbidden", 403),
         ("/self-treatment", 422),
         ("/not-member", 422),
         ("/closed", 409),

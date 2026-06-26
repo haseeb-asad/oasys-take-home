@@ -556,6 +556,17 @@ class TestCrossSurfaceIsolation:
         )
         assert caps == frozenset()
 
+    def test_unrecognized_surface_fails_closed(
+        self, pdp: Pdp, directory: FakeProfileDirectory, active_episode: Episode, t0: datetime
+    ) -> None:
+        # A malformed actor (surface not a real ProfileType) must DENY — never fall
+        # through to a real surface's branches. The PDP fails closed by default.
+        directory.active_providers.add(MULTI)
+        directory.org_admins.add((MULTI, ORG_ID))
+        bogus = ActorContext(identity_id=MULTI, profile_type="ghost")  # type: ignore[arg-type]
+        caps = pdp.allowed_capabilities(bogus, ResourceRef.for_episode(active_episode), t0)
+        assert caps == frozenset()
+
 
 # --------------------------------------------------------------------------- #
 # Resource scoping — episode vs client scope routing

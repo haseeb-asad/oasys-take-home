@@ -70,8 +70,10 @@ class Pdp:
             granted = self._client_self_access(actor, resource, now)
         elif actor.profile_type is ProfileType.PROVIDER:
             granted = self._provider_caps(actor, resource, now)
-        else:
+        elif actor.profile_type is ProfileType.ORG_STAFF:
             granted = self._org_staff_caps(actor, resource, now)
+        else:  # unrecognized surface -> deny by default (fail closed)
+            return frozenset()
 
         episode = resource.episode
         if episode is not None and not episode.is_active:
