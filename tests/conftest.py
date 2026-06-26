@@ -36,8 +36,10 @@ def _in_ci() -> bool:
 
 
 def _skip_or_fail(reason: str) -> NoReturn:
+    # Fail closed in CI; pytrace=False keeps any chained DB-driver traceback (which
+    # can carry the connection string / password) out of the CI failure output.
     if _in_ci():
-        pytest.fail(f"DB-backed test could not run in CI: {reason}")  # fail closed
+        pytest.fail(reason, pytrace=False)
     pytest.skip(reason)
 
 
@@ -69,11 +71,17 @@ def db_engine() -> Iterator[Engine]:
     engine: Engine | None = None
     try:
         engine = get_engine()
+        reachable = True
         try:
             with engine.connect():
                 pass
-        except OperationalError as exc:
-            _skip_or_fail(f"Postgres not reachable: {exc}")
+        except OperationalError:
+            reachable = False
+        # Raise the skip/fail OUTSIDE the except block and with a generic message,
+        # so the psycopg exception is not chained as __context__ (its traceback
+        # carries the conninfo / password).
+        if not reachable:
+            _skip_or_fail("Postgres is not reachable.")
         command.upgrade(_alembic_config(), "head")
         yield engine
     finally:

@@ -92,6 +92,18 @@ def test_database_url_loaded() -> None:
     assert settings.database_url.get_secret_value() == url
 
 
+def test_database_url_wrong_driver_accepted_by_settings() -> None:
+    # The driver is enforced in get_engine(), not Settings, so Settings accepts any
+    # string and never raises a credential-bearing validation error (the leak-safe
+    # design); get_engine() is what rejects a non-psycopg driver.
+    settings = Settings(
+        jwt_secret_key="k" * 32,
+        database_url="postgresql+psycopg2://user:pw@host/db",
+        _env_file=None,
+    )
+    assert settings.database_url.get_secret_value().startswith("postgresql+psycopg2://")
+
+
 def test_database_url_not_leaked_in_repr() -> None:
     url = "postgresql+psycopg://kinetic:s3cr3t-pw@localhost:5432/kinetic"
     settings = Settings(jwt_secret_key="x" * 40, database_url=url, _env_file=None)
