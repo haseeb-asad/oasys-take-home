@@ -16,9 +16,16 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.identity.domain.entities import Identity
+from app.identity.domain.entities import Identity, Profile
 from app.identity.domain.exceptions import EmailAlreadyRegistered
-from app.identity.orm import IdentityModel, _to_domain, _to_model
+from app.identity.orm import (
+    IdentityModel,
+    ProfileModel,
+    _profile_to_domain,
+    _profile_to_model,
+    _to_domain,
+    _to_model,
+)
 
 _UNIQUE_VIOLATION = "23505"
 _EMAIL_UNIQUE_CONSTRAINT = "uq_identities_email"
@@ -73,3 +80,34 @@ class SqlAlchemyIdentityRepository:
             if _is_email_unique_violation(exc):
                 raise EmailAlreadyRegistered(identity.email) from exc
             raise
+
+
+class SqlAlchemyProfileRepository:
+    """Reads and stores Profile rows against the ``profiles`` table.
+
+    ``add`` is a plain ``session.add(...) ; session.flush()`` (no SAVEPOINT, no
+    typed-error translation): a Profile has no unique business key, so a CHECK or
+    foreign-key violation surfaces as a raw ``IntegrityError`` (the caller / test
+    treats it as terminal, and the per-request rollback recovers). The ``flush``
+    forces the INSERT to hit the database inside ``add`` so those violations raise
+    here, even under the harness's ``autoflush=False`` session.
+
+    ``list_for`` returns ALL profiles for an identity (active and discarded),
+    ordered by ``profile_type``, with NO filter: the activeness decision is the
+    domain's / service's, not the SQL's.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def list_for(self, identity_id: UUID) -> list[Profile]:
+        models = self._session.scalars(
+            select(ProfileModel)
+            .where(ProfileModel.identity_id == identity_id)
+            .order_by(ProfileModel.profile_type)
+        ).all()
+        return [_profile_to_domain(model) for model in models]
+
+    def add(self, profile: Profile) -> None:
+        self._session.add(_profile_to_model(profile))
+        self._session.flush()

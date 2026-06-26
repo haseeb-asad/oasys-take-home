@@ -15,9 +15,10 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import create_engine, pool
 
+from app.care import orm as care_orm  # noqa: F401  (registers care tables)
 from app.core.config import get_settings
 from app.core.database import Base
-from app.identity import orm  # noqa: F401  (registers identities on Base.metadata)
+from app.identity import orm  # noqa: F401  (registers identities + profiles)
 from app.organization import orm as organization_orm  # noqa: F401  (registers org tables)
 
 config = context.config

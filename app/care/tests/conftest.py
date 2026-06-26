@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -14,6 +15,24 @@ from app.care.domain.value_objects import Role
 def _uid(n: int) -> UUID:
     """Deterministic UUID for readable, exact-match assertions in tests."""
     return UUID(int=n)
+
+
+@dataclass(slots=True)
+class FakeEpisodeRepository:
+    """In-memory ``EpisodeRepository`` adapter backed by a dict (no DB).
+
+    Structurally satisfies the ``EpisodeRepository`` port; ``save`` upserts the
+    whole aggregate by id (last write wins), mirroring the SQLAlchemy adapter's
+    upsert contract without a database.
+    """
+
+    episodes: dict[UUID, Episode] = field(default_factory=dict)
+
+    def get(self, episode_id: UUID) -> Episode | None:
+        return self.episodes.get(episode_id)
+
+    def save(self, episode: Episode) -> None:
+        self.episodes[episode.id] = episode
 
 
 # Stable identities used across the suite.
