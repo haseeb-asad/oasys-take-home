@@ -7,12 +7,12 @@ from uuid import UUID
 import pytest
 
 from app.care.domain.exceptions import (
-    DomainError,
     EpisodeClosed,
     NotACurrentMember,
     OverlappingPeriod,
     SelfTreatment,
 )
+from app.core.exceptions import DomainError
 
 _ID = UUID(int=42)
 

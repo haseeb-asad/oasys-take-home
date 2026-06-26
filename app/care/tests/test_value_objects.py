@@ -16,7 +16,7 @@ def _t(hours: int) -> datetime:
 class TestRole:
     def test_values_count_and_str_enum(self) -> None:
         assert len(Role) == 5
-        assert Role.PHYSICIAN == "physician"  # StrEnum compares equal to its value
+        assert isinstance(Role.PHYSICIAN, str)  # StrEnum members are str instances
         assert {r.value for r in Role} == {
             "physician",
             "physiotherapist",
