@@ -17,7 +17,7 @@ def _identity() -> Identity:
         id=_ID,
         email="ada@example.com",
         display_name="Ada",
-        password_hash="$2b$12$abc",
+        password_hash="hashed-pw-stub",
         created_at=_CREATED_AT,
     )
 
@@ -27,7 +27,7 @@ def test_to_model_sets_all_columns_explicitly() -> None:
     assert model.id == _ID
     assert model.email == "ada@example.com"
     assert model.display_name == "Ada"
-    assert model.password_hash == "$2b$12$abc"
+    assert model.password_hash == "hashed-pw-stub"
     assert model.created_at == _CREATED_AT
 
 
@@ -36,7 +36,7 @@ def test_to_domain_maps_all_columns() -> None:
         id=_ID,
         email="ada@example.com",
         display_name="Ada",
-        password_hash="$2b$12$abc",
+        password_hash="hashed-pw-stub",
         created_at=_CREATED_AT,
     )
     assert _to_domain(model) == _identity()

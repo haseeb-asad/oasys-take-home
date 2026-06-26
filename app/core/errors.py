@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.authz.exceptions import Forbidden
@@ -68,6 +69,37 @@ def _handle_value_error(request: Request, exc: Exception) -> JSONResponse:
     return _problem(422, "ValidationError", str(exc))
 
 
+# Pydantic error keys that echo the raw submitted value (a password, etc.); never
+# return them in the response or logs. Only loc / msg / type are surfaced.
+_REDACTED_ERROR_KEYS = frozenset({"input", "ctx", "url"})
+
+
+def _handle_request_validation(request: Request, exc: Exception) -> JSONResponse:
+    """Request (body / query / path) validation -> 422 with the raw input redacted.
+
+    FastAPI's default handler returns Pydantic's ``errors()`` verbatim, which
+    includes the submitted ``input`` (so a registration password would be echoed
+    back and logged). Strip the value-bearing keys and keep only ``loc`` / ``msg``
+    / ``type``.
+    """
+    assert isinstance(exc, RequestValidationError)
+    errors = [
+        {key: value for key, value in error.items() if key not in _REDACTED_ERROR_KEYS}
+        for error in exc.errors()
+    ]
+    return JSONResponse(
+        status_code=422,
+        content={
+            "type": "about:blank",
+            "title": "ValidationError",
+            "status": 422,
+            "detail": "Request validation failed.",
+            "errors": errors,
+        },
+        media_type="application/problem+json",
+    )
+
+
 def _handle_unexpected(request: Request, exc: Exception) -> JSONResponse:
     """Last-resort net so nothing leaks as an unstructured 500; logged with context."""
     logger.exception("Unhandled error on %s %s", request.method, request.url.path)
@@ -77,5 +109,6 @@ def _handle_unexpected(request: Request, exc: Exception) -> JSONResponse:
 def register_exception_handlers(app: FastAPI) -> None:
     """Register the exception handlers on the app (call once from ``app/main.py``)."""
     app.add_exception_handler(DomainError, _handle_domain_error)  # catches every subclass
+    app.add_exception_handler(RequestValidationError, _handle_request_validation)
     app.add_exception_handler(ValueError, _handle_value_error)
     app.add_exception_handler(Exception, _handle_unexpected)

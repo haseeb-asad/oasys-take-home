@@ -21,7 +21,7 @@ def _identity() -> Identity:
         id=_ID,
         email="ada@example.com",
         display_name="Ada",
-        password_hash="$2b$12$abc",
+        password_hash="hashed-pw-stub",
         created_at=_T0,
     )
 
@@ -31,7 +31,7 @@ def test_identity_round_trips_fields() -> None:
     assert identity.id == _ID
     assert identity.email == "ada@example.com"
     assert identity.display_name == "Ada"
-    assert identity.password_hash == "$2b$12$abc"
+    assert identity.password_hash == "hashed-pw-stub"
     assert identity.created_at == _T0
 
 
@@ -47,7 +47,7 @@ def test_identity_rejects_naive_created_at() -> None:
             id=_ID,
             email="ada@example.com",
             display_name="Ada",
-            password_hash="$2b$12$abc",
+            password_hash="hashed-pw-stub",
             created_at=datetime(2026, 1, 1),  # noqa: DTZ001
         )
 

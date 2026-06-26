@@ -68,9 +68,19 @@ def test_register_invalid_email_returns_422(client: TestClient) -> None:
     assert resp.status_code == 422
 
 
-def test_register_short_password_returns_422(client: TestClient) -> None:
-    resp = client.post(_REGISTER, json=_payload(password="short"))
+def test_register_short_password_returns_422_without_echoing_it(client: TestClient) -> None:
+    resp = client.post(_REGISTER, json=_payload(password="leakme"))  # 6 chars, under the min
     assert resp.status_code == 422
+    # The submitted password must never be echoed back in the validation response.
+    assert "leakme" not in resp.text
+
+
+def test_register_long_password_returns_422_without_echoing_it(client: TestClient) -> None:
+    secret = "L3akCanary" * 20  # over the 128 max; a distinctive value to catch echoing
+    resp = client.post(_REGISTER, json=_payload(password=secret))
+    assert resp.status_code == 422
+    assert secret not in resp.text
+    assert "L3akCanary" not in resp.text
 
 
 # --- token (OAuth2 password grant) ------------------------------------------
@@ -130,6 +140,14 @@ def test_me_without_token_returns_401_with_challenge(client: TestClient) -> None
 
 def test_me_malformed_token_returns_401(client: TestClient) -> None:
     resp = client.get(_ME, headers={"Authorization": "Bearer not-a-jwt"})
+    assert resp.status_code == 401
+    assert resp.headers["WWW-Authenticate"] == "Bearer"
+
+
+def test_me_with_non_bearer_scheme_returns_401(client: TestClient) -> None:
+    # A non-Bearer Authorization scheme is treated as no credentials
+    # (auto_error=False), funneling through the same uniform 401 + challenge.
+    resp = client.get(_ME, headers={"Authorization": "Basic notarealtoken"})
     assert resp.status_code == 401
     assert resp.headers["WWW-Authenticate"] == "Bearer"
 
