@@ -30,7 +30,13 @@ class Base(DeclarativeBase):
 
 @lru_cache
 def get_engine() -> Engine:
-    return create_engine(get_settings().database_url.get_secret_value(), pool_pre_ping=True)
+    url = get_settings().database_url.get_secret_value()
+    # Enforce the sync psycopg driver (A1) here rather than in a pydantic validator,
+    # so the credential-bearing URL is never echoed into a validation error. The
+    # RuntimeError carries no value.
+    if not url.startswith("postgresql+psycopg://"):
+        raise RuntimeError("DATABASE_URL must use the postgresql+psycopg:// driver.")
+    return create_engine(url, pool_pre_ping=True)
 
 
 @lru_cache

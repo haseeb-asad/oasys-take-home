@@ -26,11 +26,15 @@ _EXPECTED_NAMING = {
 _FAKE_URL = "postgresql+psycopg://u:p@localhost:5432/db"
 
 
-def _patch_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+def _patch_settings_url(monkeypatch: pytest.MonkeyPatch, url: str) -> None:
     monkeypatch.setattr(
         "app.core.database.get_settings",
-        lambda: SimpleNamespace(database_url=SecretStr(_FAKE_URL)),
+        lambda: SimpleNamespace(database_url=SecretStr(url)),
     )
+
+
+def _patch_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_settings_url(monkeypatch, _FAKE_URL)
 
 
 def test_base_metadata_naming_convention() -> None:
@@ -65,3 +69,29 @@ def test_get_sessionmaker_bound_to_engine(monkeypatch: pytest.MonkeyPatch) -> No
     finally:
         get_engine.cache_clear()
         get_sessionmaker.cache_clear()
+
+
+def test_get_engine_rejects_wrong_driver(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_settings_url(monkeypatch, "postgresql+psycopg2://u:p@localhost:5432/db")
+    get_engine.cache_clear()
+    try:
+        with pytest.raises(RuntimeError, match=r"postgresql\+psycopg"):
+            get_engine()
+    finally:
+        get_engine.cache_clear()
+
+
+def test_get_engine_error_does_not_leak_credential(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The driver check raises a RuntimeError that carries no value, so a bad URL's
+    # password and host never reach the error (unlike a pydantic validation error).
+    bad = "postgresql+psycopg2://user:s3cr3t-pw@db-host.internal:5432/db"
+    _patch_settings_url(monkeypatch, bad)
+    get_engine.cache_clear()
+    try:
+        with pytest.raises(RuntimeError) as exc_info:
+            get_engine()
+        rendered = str(exc_info.value) + repr(exc_info.value)
+        assert "s3cr3t-pw" not in rendered
+        assert "db-host.internal" not in rendered
+    finally:
+        get_engine.cache_clear()

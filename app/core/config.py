@@ -38,12 +38,8 @@ class Settings(BaseSettings):
             raise ValueError("JWT secret key must be at least 32 characters.")
         return value
 
-    @field_validator("database_url")
-    @classmethod
-    def _must_be_sync_postgresql(cls, value: SecretStr) -> SecretStr:
-        if not value.get_secret_value().startswith("postgresql+psycopg://"):
-            raise ValueError("DATABASE_URL must use the postgresql+psycopg:// driver.")
-        return value
+    # The postgresql+psycopg driver is enforced in get_engine() (app/core/database.py),
+    # not here, so a malformed URL is never echoed into a pydantic validation error.
 
 
 @lru_cache

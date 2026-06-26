@@ -59,20 +59,25 @@ def offline_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 @pytest.fixture(scope="session")
 def db_engine() -> Iterator[Engine]:
+    # Misconfigured settings (a ValidationError, or the wrong-driver RuntimeError
+    # from get_engine) surface as an error rather than a false-green skip; only an
+    # unreachable DB is a legitimate local skip. The try/finally guarantees the
+    # engine is disposed and every lru_cache factory is cleared on every exit path,
+    # including the skip path.
     for fn in (get_settings, get_engine, get_sessionmaker):
         fn.cache_clear()
-    # Only an unreachable DB is a legitimate local skip. A ValidationError means
-    # misconfigured settings (wrong driver, missing secret); let it surface as an
-    # error rather than a false-green skip. The credential is a SecretStr, so it
-    # is masked in any error that propagates.
+    engine: Engine | None = None
     try:
         engine = get_engine()
-        with engine.connect():
-            pass
-    except OperationalError as exc:
-        _skip_or_fail(f"Postgres not reachable: {exc}")
-    command.upgrade(_alembic_config(), "head")
-    yield engine
-    engine.dispose()
-    for fn in (get_settings, get_engine, get_sessionmaker):
-        fn.cache_clear()
+        try:
+            with engine.connect():
+                pass
+        except OperationalError as exc:
+            _skip_or_fail(f"Postgres not reachable: {exc}")
+        command.upgrade(_alembic_config(), "head")
+        yield engine
+    finally:
+        if engine is not None:
+            engine.dispose()
+        for fn in (get_settings, get_engine, get_sessionmaker):
+            fn.cache_clear()

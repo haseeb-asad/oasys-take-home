@@ -92,29 +92,9 @@ def test_database_url_loaded() -> None:
     assert settings.database_url.get_secret_value() == url
 
 
-def test_database_url_rejects_wrong_driver() -> None:
-    with pytest.raises(ValidationError):
-        Settings(
-            jwt_secret_key="k" * 32,
-            database_url="postgresql+psycopg2://kinetic:kinetic@localhost:5432/kinetic",
-            _env_file=None,
-        )
-
-
 def test_database_url_not_leaked_in_repr() -> None:
     url = "postgresql+psycopg://kinetic:s3cr3t-pw@localhost:5432/kinetic"
     settings = Settings(jwt_secret_key="x" * 40, database_url=url, _env_file=None)
     assert "s3cr3t-pw" not in repr(settings)
     assert url not in repr(settings)
     assert settings.database_url.get_secret_value() == url
-
-
-def test_database_url_error_does_not_leak_credential() -> None:
-    # hide_input_in_errors keeps the bad URL (and its embedded password / host)
-    # out of the ValidationError string, which is what reaches logs and tracebacks.
-    bad = "postgresql+psycopg2://kinetic:s3cr3t-pw@db-host.internal:5432/kinetic"
-    with pytest.raises(ValidationError) as exc_info:
-        Settings(jwt_secret_key="k" * 32, database_url=bad, _env_file=None)
-    rendered = str(exc_info.value)
-    assert "s3cr3t-pw" not in rendered
-    assert "db-host.internal" not in rendered
