@@ -25,7 +25,7 @@ Rationale for two layers: both pure global models (scopes-on-token, or global ro
 ## Authentication (identity)
 
 - **JWT access token**, OAuth2 password flow (`OAuth2PasswordBearer`).
-- **Password hashing:** `passlib[bcrypt]`.
+- **Password hashing:** bcrypt (direct), over a base64-encoded SHA-256 pre-hash (passlib dropped — see decision-log A11 deviation).
 - **`get_current_user` dependency** resolves the authenticated Identity from the verified token. Nothing beyond the signed token is trusted; **all authorization is derived server-side**.
 - **`Identity` table (the login credential):** `identities(id UUID PK, email citext UNIQUE NOT NULL, display_name, password_hash, created_at)`. **Email is the login identifier** (the OAuth2 password-flow "username"), promoted from "optional" (decision-log A13) to required; `display_name` rides here too for readable seeds/demos. Each `Profile` references `identity_id` and is **only the typed surface** (`profile_type`) authz gates on — **persona-specific data (provider credentials/specialty, client intake) is cut for v1** (typed `provider_profiles`/`client_profiles` are Next).
 - **Identity + Profiles:** one Person is a single `Identity` (the authenticating subject) that owns **one or more typed `Profile`s**, one per persona it acts as (e.g. a client profile AND a provider profile). The multi-hat case (client AND provider) is **two Profiles under one Identity — never a `system_roles` set on the Identity.** Profiles are the typed surface that authorization gates on, and the natural home for **profile-specific data** (provider credentials/specialty; client demographics/intake) **once it is modeled — deferred to Next; v1 stores only `profile_type` + `discarded_at`**.
