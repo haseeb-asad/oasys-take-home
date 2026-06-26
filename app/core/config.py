@@ -21,12 +21,15 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        # Keep raw inputs (a credential-bearing DATABASE_URL, the JWT secret) out
+        # of validation-error strings, which is what reaches logs and tracebacks.
+        hide_input_in_errors=True,
     )
 
     jwt_secret_key: SecretStr
     jwt_algorithm: Literal["HS256"] = "HS256"
     access_token_expire_minutes: int = Field(default=30, gt=0)
-    database_url: str = Field(repr=False)
+    database_url: SecretStr
 
     @field_validator("jwt_secret_key")
     @classmethod
@@ -37,8 +40,8 @@ class Settings(BaseSettings):
 
     @field_validator("database_url")
     @classmethod
-    def _must_be_sync_postgresql(cls, value: str) -> str:
-        if not value.startswith("postgresql+psycopg://"):
+    def _must_be_sync_postgresql(cls, value: SecretStr) -> SecretStr:
+        if not value.get_secret_value().startswith("postgresql+psycopg://"):
             raise ValueError("DATABASE_URL must use the postgresql+psycopg:// driver.")
         return value
 

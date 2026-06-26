@@ -16,7 +16,6 @@ from typing import NoReturn
 import pytest
 from alembic import command
 from alembic.config import Config
-from pydantic import ValidationError
 from sqlalchemy import Engine
 from sqlalchemy.exc import OperationalError
 
@@ -60,15 +59,20 @@ def offline_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 @pytest.fixture(scope="session")
 def db_engine() -> Iterator[Engine]:
-    get_engine.cache_clear()
-    get_sessionmaker.cache_clear()
+    for fn in (get_settings, get_engine, get_sessionmaker):
+        fn.cache_clear()
+    # Only an unreachable DB is a legitimate local skip. A ValidationError means
+    # misconfigured settings (wrong driver, missing secret); let it surface as an
+    # error rather than a false-green skip. The credential is a SecretStr, so it
+    # is masked in any error that propagates.
     try:
         engine = get_engine()
         with engine.connect():
             pass
-    except ValidationError as exc:
-        _skip_or_fail(f"app settings unavailable: {exc}")
     except OperationalError as exc:
         _skip_or_fail(f"Postgres not reachable: {exc}")
     command.upgrade(_alembic_config(), "head")
     yield engine
+    engine.dispose()
+    for fn in (get_settings, get_engine, get_sessionmaker):
+        fn.cache_clear()

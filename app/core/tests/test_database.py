@@ -11,6 +11,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from pydantic import SecretStr
 
 from app.core.database import Base, get_engine, get_sessionmaker
 
@@ -28,7 +29,7 @@ _FAKE_URL = "postgresql+psycopg://u:p@localhost:5432/db"
 def _patch_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "app.core.database.get_settings",
-        lambda: SimpleNamespace(database_url=_FAKE_URL),
+        lambda: SimpleNamespace(database_url=SecretStr(_FAKE_URL)),
     )
 
 
