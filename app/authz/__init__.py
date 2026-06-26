@@ -1,12 +1,27 @@
-"""Authorization bounded context: capability vocabulary and role -> grid.
+"""Authorization bounded context: capability vocabulary, role grid, and the PDP.
 
-Public surface is the capability model only; the policy decision point
-(``policy.py``) is added in a later commit and is not re-exported here. The
-``_ROLE_CAPABILITIES`` grid stays private to ``capabilities``.
+Public surface: the capability model (``Capability`` / ``GrantRole`` /
+``capabilities_for``) and the policy decision point (``Pdp`` with its
+actor/resource context, the ``ProfileDirectory`` port, and the ``Forbidden``
+exception). The ``_ROLE_CAPABILITIES`` grid stays private to ``capabilities``.
 """
 
 from __future__ import annotations
 
 from app.authz.capabilities import Capability, GrantRole, capabilities_for
+from app.authz.context import ActorContext, ProfileType, ResourceRef
+from app.authz.exceptions import Forbidden
+from app.authz.policy import Pdp
+from app.authz.ports import ProfileDirectory
 
-__all__ = ["Capability", "GrantRole", "capabilities_for"]
+__all__ = [
+    "ActorContext",
+    "Capability",
+    "Forbidden",
+    "GrantRole",
+    "Pdp",
+    "ProfileDirectory",
+    "ProfileType",
+    "ResourceRef",
+    "capabilities_for",
+]
