@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import hashlib
 from datetime import datetime, timedelta
+from typing import TypeGuard
 
 import bcrypt
 import jwt
@@ -31,6 +32,11 @@ def _epoch_seconds(now: datetime) -> int:
     if now.tzinfo is None or now.utcoffset() is None:  # robust aware check
         raise ValueError("now must be timezone-aware.")
     return int(now.timestamp())
+
+
+def _is_numeric_date(value: object) -> TypeGuard[int]:
+    """A JWT NumericDate is a real int — bools are ints in Python but not valid here."""
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def hash_password(password: str) -> str:
@@ -77,8 +83,10 @@ def decode_access_token(
     disabled so we validate ``exp`` / ``iat`` against the INJECTED ``now``
     (codebase-wide injectable-clock rule; pyjwt validates ``exp`` AND ``iat`` vs
     the real clock, which would make fixed-date tests flaky). ``algorithms``
-    pins one algorithm — the alg-confusion defense. We never issue ``nbf``; only
-    our-signed tokens validate, so ``nbf`` is neither issued nor consulted.
+    pins one algorithm — the alg-confusion defense. We never issue ``nbf``, but
+    if a (validly signed) token carries one it is honoured against the injected
+    ``now`` too, so a not-yet-valid token is rejected rather than silently
+    accepted (pyjwt's own ``nbf`` check is disabled for the same clock reason).
     """
     try:
         claims = jwt.decode(
@@ -92,13 +100,21 @@ def decode_access_token(
     subject = claims.get("sub")
     iat = claims.get("iat")
     exp = claims.get("exp")
+    nbf = claims.get("nbf")
     if not isinstance(subject, str) or not subject:  # missing / empty / non-str sub
         raise NotAuthenticated()
-    if not isinstance(iat, int) or not isinstance(exp, int):  # missing / non-int iat or exp
+    if not _is_numeric_date(iat):  # missing / non-int (or bool) iat
+        raise NotAuthenticated()
+    if not _is_numeric_date(exp):  # missing / non-int (or bool) exp
         raise NotAuthenticated()
     now_s = _epoch_seconds(now)
     if now_s >= exp:  # expired (exp instant already invalid — half-open)
         raise NotAuthenticated()
     if iat > now_s:  # issued in the future
         raise NotAuthenticated()
+    if nbf is not None:  # honour not-before if a (signed) token carries one
+        if not _is_numeric_date(nbf):
+            raise NotAuthenticated()
+        if now_s < nbf:  # not yet valid
+            raise NotAuthenticated()
     return subject

@@ -133,6 +133,57 @@ def test_decode_future_iat_raises() -> None:
         decode_access_token(token, secret=S, now=t0)
 
 
+def test_decode_future_nbf_raises() -> None:
+    iat = int(t0.timestamp())
+    token = jwt.encode(
+        {"sub": "u", "iat": iat, "exp": iat + 1800, "nbf": iat + 600}, S, algorithm="HS256"
+    )
+    with pytest.raises(NotAuthenticated):
+        decode_access_token(token, secret=S, now=t0)
+
+
+def test_decode_already_valid_nbf_succeeds() -> None:
+    iat = int(t0.timestamp())
+    token = jwt.encode(
+        {"sub": "u", "iat": iat, "exp": iat + 1800, "nbf": iat}, S, algorithm="HS256"
+    )
+    assert decode_access_token(token, secret=S, now=t0 + timedelta(minutes=1)) == "u"
+
+
+def test_decode_non_int_nbf_raises() -> None:
+    iat = int(t0.timestamp())
+    token = jwt.encode(
+        {"sub": "u", "iat": iat, "exp": iat + 1800, "nbf": "soon"}, S, algorithm="HS256"
+    )
+    with pytest.raises(NotAuthenticated):
+        decode_access_token(token, secret=S, now=t0)
+
+
+def test_decode_bool_iat_raises() -> None:
+    # bools are ints in Python; a JWT NumericDate must be a real int, not True/False.
+    iat = int(t0.timestamp())
+    token = jwt.encode({"sub": "u", "iat": True, "exp": iat + 1800}, S, algorithm="HS256")
+    with pytest.raises(NotAuthenticated):
+        decode_access_token(token, secret=S, now=t0)
+
+
+# --- algorithm-confusion defense (algorithms=[algorithm] pins one alg) -------
+
+
+def test_decode_alg_none_token_raises() -> None:
+    iat = int(t0.timestamp())
+    token = jwt.encode({"sub": "u", "iat": iat, "exp": iat + 1800}, "", algorithm="none")
+    with pytest.raises(NotAuthenticated):
+        decode_access_token(token, secret=S, now=t0)
+
+
+def test_decode_hs512_token_under_hs256_decoder_raises() -> None:
+    iat = int(t0.timestamp())
+    token = jwt.encode({"sub": "u", "iat": iat, "exp": iat + 1800}, "k" * 64, algorithm="HS512")
+    with pytest.raises(NotAuthenticated):
+        decode_access_token(token, secret=S, now=t0)  # decoder defaults to HS256
+
+
 # --- injectable clock: naive datetimes rejected -----------------------------
 
 
