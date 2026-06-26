@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-command local setup: Postgres (Docker) + Python venv + deps + .env.
-# Idempotent and self-contained — it will even start Docker Desktop for you.
+# Idempotent and self-contained; it will even start Docker Desktop for you.
 # The only hard requirement is that Docker is installed.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -18,20 +18,20 @@ find_docker() {
   done
   return 1
 }
-DOCKER="$(find_docker)" || { err "docker CLI not found — install Docker Desktop."; exit 1; }
+DOCKER="$(find_docker)" || { err "docker CLI not found. Install Docker Desktop."; exit 1; }
 export PATH="$(dirname "$DOCKER"):$PATH"
 log "docker: $DOCKER ($(docker --version))"
 
 # --- 2. ensure the docker daemon is up (try to start it if it isn't) ---
 if ! docker info >/dev/null 2>&1; then
-  log "Docker daemon not running — trying to start it…"
+  log "Docker daemon not running; trying to start it…"
   case "$(uname -s)" in
     Darwin) open -a Docker >/dev/null 2>&1 || true ;;
     Linux)  sudo systemctl start docker >/dev/null 2>&1 || true ;;
   esac
   log "Waiting for the Docker daemon (up to ~180s)…"
   for _ in $(seq 1 90); do docker info >/dev/null 2>&1 && break; sleep 2; done
-  docker info >/dev/null 2>&1 || { err "Docker daemon never came up — start Docker and re-run."; exit 1; }
+  docker info >/dev/null 2>&1 || { err "Docker daemon never came up. Start Docker and re-run."; exit 1; }
 fi
 log "Docker daemon is up."
 
@@ -69,7 +69,15 @@ fi
 # --- 5. .env ---
 [ -f .env ] || { log "Creating .env from .env.example…"; cp .env.example .env; }
 
-# --- 6. seed (idempotent; app/seed.py is a no-op placeholder for now) ---
+# --- 6. migrations (schema, before seed) ---
+log "Applying migrations (alembic upgrade head)…"
+if [ "$RUN_PREFIX" = "uv run" ]; then
+  uv run alembic upgrade head
+else
+  ./.venv/bin/alembic upgrade head
+fi
+
+# --- 7. seed (idempotent; app/seed.py is a no-op placeholder for now) ---
 log "Seeding the database (python -m app.seed)…"
 if [ "$RUN_PREFIX" = "uv run" ]; then
   uv run python -m app.seed

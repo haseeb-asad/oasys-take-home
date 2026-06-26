@@ -1,7 +1,7 @@
 [project]
 name = "kinetic-backend"
 version = "0.0.0"
-description = "Kinetic — care-team backend (Oasys take-home)"
+description = "Kinetic care-team backend (Oasys take-home)"
 requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.138",
@@ -24,6 +24,14 @@ dev = [
     "httpx>=0.28",
 ]
 
+[tool.uv]
+# greenlet is a SQLAlchemy x86_64-only transitive dependency, unused by our sync
+# stack and not installed at all on arm64 (local). greenlet 3.5.3 ships no sdist
+# and no CI-installable wheel, so constrain it to an installable version. With no
+# committed uv.lock, CI resolves the latest deps each run, so this pin avoids a
+# transient install break until a lockfile lands.
+constraint-dependencies = ["greenlet!=3.5.3"]
+
 [tool.ruff]
 target-version = "py314"
 line-length = 100
@@ -39,6 +47,7 @@ files = ["app", "tests"]
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib"
+pythonpath = ["."]
 testpaths = ["app", "tests"]
 # Per-domain unit tests live in app/<context>/tests/ (TDD); cross-context
 # scenario/integration tests live in the top-level tests/.
