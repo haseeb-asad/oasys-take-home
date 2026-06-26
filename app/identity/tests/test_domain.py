@@ -1,4 +1,4 @@
-"""Unit tests for the pure Identity entity and the NotAuthenticated exception."""
+"""Unit tests for the pure Identity / Profile entities and the NotAuthenticated exception."""
 
 from __future__ import annotations
 
@@ -9,11 +9,13 @@ from uuid import UUID
 import pytest
 
 from app.core.exceptions import DomainError, NotAuthenticated
-from app.identity.domain.entities import Identity
+from app.identity.domain.entities import Identity, Profile
 from app.identity.domain.exceptions import EmailAlreadyRegistered
+from app.identity.domain.value_objects import ProfileType
 
 _T0 = datetime(2026, 1, 1, tzinfo=UTC)
 _ID = UUID(int=1)
+_IDENTITY_ID = UUID(int=2)
 
 
 def _identity() -> Identity:
@@ -49,6 +51,49 @@ def test_identity_rejects_naive_created_at() -> None:
             display_name="Ada",
             password_hash="hashed-pw-stub",
             created_at=datetime(2026, 1, 1),  # noqa: DTZ001
+        )
+
+
+def _profile(*, discarded_at: datetime | None = None) -> Profile:
+    return Profile(
+        id=_ID,
+        identity_id=_IDENTITY_ID,
+        profile_type=ProfileType.PROVIDER,
+        discarded_at=discarded_at,
+    )
+
+
+def test_profile_round_trips_fields() -> None:
+    profile = _profile()
+    assert profile.id == _ID
+    assert profile.identity_id == _IDENTITY_ID
+    assert profile.profile_type is ProfileType.PROVIDER
+    assert profile.discarded_at is None
+
+
+def test_profile_active_when_not_discarded() -> None:
+    assert _profile().is_active is True
+
+
+def test_profile_inactive_when_discarded() -> None:
+    profile = _profile(discarded_at=_T0)
+    assert profile.is_active is False
+    assert profile.discarded_at == _T0
+
+
+def test_profile_is_frozen() -> None:
+    profile = _profile()
+    with pytest.raises(FrozenInstanceError):
+        profile.discarded_at = _T0  # type: ignore[misc]
+
+
+def test_profile_rejects_naive_discarded_at() -> None:
+    with pytest.raises(ValueError, match="timezone-aware"):
+        Profile(
+            id=_ID,
+            identity_id=_IDENTITY_ID,
+            profile_type=ProfileType.CLIENT,
+            discarded_at=datetime(2026, 1, 1),  # noqa: DTZ001
         )
 
 

@@ -13,6 +13,7 @@ it closes the old one and opens a new one, contiguously (no gap, no overlap).
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
@@ -171,6 +172,45 @@ class Episode:
             )
             face_id = face_provider_id
         episode.set_face(provider_id=face_id, now=now, change_reason=change_reason)
+        return episode
+
+    @classmethod
+    def reconstitute(
+        cls,
+        *,
+        id: UUID,
+        client_id: UUID,
+        reason: str,
+        managing_org_id: UUID,
+        opened_at: datetime,
+        status: EpisodeStatus,
+        closed_at: datetime | None,
+        memberships: Iterable[Membership],
+        responsibility: Iterable[Responsibility],
+        faces: Iterable[BookingContact],
+    ) -> Episode:
+        """Rebuild a persisted episode from its rows WITHOUT re-running invariants.
+
+        The inverse of persistence (used by the repository on every ``get``): it
+        constructs the root via ``__init__`` then assigns the three private child
+        lists directly. It deliberately runs NO mutator (no closed-guard, no
+        self-treatment / current-member checks, no no-overlap assertion), so
+        already-closed or already-reassigned historical rows load faithfully
+        rather than being rejected. The caller (the mapper) is trusted to pass
+        rows that were themselves produced by the validated mutators.
+        """
+        episode = cls(
+            id=id,
+            client_id=client_id,
+            reason=reason,
+            managing_org_id=managing_org_id,
+            opened_at=opened_at,
+            status=status,
+            closed_at=closed_at,
+        )
+        episode._memberships = list(memberships)
+        episode._responsibility = list(responsibility)
+        episode._faces = list(faces)
         return episode
 
     # ------------------------------------------------------------------ #
