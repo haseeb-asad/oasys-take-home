@@ -20,7 +20,8 @@ from app.care.domain.exceptions import (
     OverlappingPeriod,
     SelfTreatment,
 )
-from app.core.errors import register_exception_handlers
+from app.core.errors import _DOMAIN_STATUS, register_exception_handlers
+from app.core.exceptions import NotAuthenticated
 
 _ID = UUID(int=7)
 
@@ -45,6 +46,10 @@ def _client() -> TestClient:
     def _ov() -> None:
         raise OverlappingPeriod(_ID)
 
+    @app.get("/not-authenticated")
+    def _na() -> None:
+        raise NotAuthenticated()
+
     @app.get("/forbidden")
     def _fb() -> None:
         actor = ActorContext(identity_id=_ID, profile_type=ProfileType.PROVIDER)
@@ -64,6 +69,7 @@ def _client() -> TestClient:
 @pytest.mark.parametrize(
     ("path", "status"),
     [
+        ("/not-authenticated", 401),
         ("/forbidden", 403),
         ("/self-treatment", 422),
         ("/not-member", 422),
@@ -86,3 +92,7 @@ def test_unhandled_exception_becomes_structured_500() -> None:
     resp = _client().get("/boom")
     assert resp.status_code == 500
     assert resp.json()["title"] == "InternalServerError"
+
+
+def test_not_authenticated_mapped_to_401() -> None:
+    assert _DOMAIN_STATUS[NotAuthenticated] == 401

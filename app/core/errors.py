@@ -24,12 +24,13 @@ from app.care.domain.exceptions import (
     OverlappingPeriod,
     SelfTreatment,
 )
-from app.core.exceptions import DomainError
+from app.core.exceptions import DomainError, NotAuthenticated
 
 logger = logging.getLogger("kinetic")
 
 # {domain exception -> HTTP status} — the auth-design table, single home.
 _DOMAIN_STATUS: dict[type[Exception], int] = {
+    NotAuthenticated: 401,
     Forbidden: 403,
     SelfTreatment: 422,
     NotACurrentMember: 422,
