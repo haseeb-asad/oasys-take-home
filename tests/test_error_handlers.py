@@ -22,6 +22,7 @@ from app.care.domain.exceptions import (
 )
 from app.core.errors import _DOMAIN_STATUS, register_exception_handlers
 from app.core.exceptions import NotAuthenticated
+from app.identity.domain.exceptions import EmailAlreadyRegistered
 
 _ID = UUID(int=7)
 
@@ -50,6 +51,10 @@ def _client() -> TestClient:
     def _na() -> None:
         raise NotAuthenticated()
 
+    @app.get("/email-taken")
+    def _et() -> None:
+        raise EmailAlreadyRegistered("ada@example.com")
+
     @app.get("/forbidden")
     def _fb() -> None:
         actor = ActorContext(identity_id=_ID, profile_type=ProfileType.PROVIDER)
@@ -75,6 +80,7 @@ def _client() -> TestClient:
         ("/not-member", 422),
         ("/closed", 409),
         ("/overlap", 409),
+        ("/email-taken", 409),
         ("/value-error", 422),
     ],
 )
@@ -96,3 +102,19 @@ def test_unhandled_exception_becomes_structured_500() -> None:
 
 def test_not_authenticated_mapped_to_401() -> None:
     assert _DOMAIN_STATUS[NotAuthenticated] == 401
+
+
+def test_email_already_registered_mapped_to_409() -> None:
+    assert _DOMAIN_STATUS[EmailAlreadyRegistered] == 409
+
+
+def test_401_response_carries_www_authenticate_challenge() -> None:
+    resp = _client().get("/not-authenticated")
+    assert resp.status_code == 401
+    assert resp.headers["WWW-Authenticate"] == "Bearer"
+
+
+def test_403_response_does_not_carry_www_authenticate() -> None:
+    resp = _client().get("/forbidden")
+    assert resp.status_code == 403
+    assert "WWW-Authenticate" not in resp.headers

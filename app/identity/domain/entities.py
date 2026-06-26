@@ -1,8 +1,8 @@
-"""The Identity domain entity — PURE (stdlib + frozen dataclass only).
+"""The Identity domain entity: PURE (stdlib + frozen dataclass only).
 
 No FastAPI / SQLAlchemy / Pydantic imports (project std 1). The SQLAlchemy model
-and its repository adapter live elsewhere (commit 7) and map to/from this type at
-the boundary.
+(``app/identity/orm.py``) and its repository adapter (``app/identity/repository.py``)
+map to/from this type at the boundary.
 """
 
 from __future__ import annotations
@@ -16,8 +16,9 @@ from uuid import UUID
 class Identity:
     """Login credential (the authenticating subject).
 
-    Mirrors the design's ``identities`` table; persistence is commit 7. ``id``
-    shares the identity id-space so authz identity-equality checks stay plain.
+    Mirrors the design's ``identities`` table; persistence lives in
+    ``app/identity/orm.py``. ``id`` shares the identity id-space so authz
+    identity-equality checks stay plain.
     """
 
     id: UUID

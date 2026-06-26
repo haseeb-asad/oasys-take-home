@@ -10,6 +10,7 @@ import pytest
 
 from app.core.exceptions import DomainError, NotAuthenticated
 from app.identity.domain.entities import Identity
+from app.identity.domain.exceptions import EmailAlreadyRegistered
 
 _T0 = datetime(2026, 1, 1, tzinfo=UTC)
 _ID = UUID(int=1)
@@ -20,7 +21,7 @@ def _identity() -> Identity:
         id=_ID,
         email="ada@example.com",
         display_name="Ada",
-        password_hash="$2b$12$abc",
+        password_hash="hashed-pw-stub",
         created_at=_T0,
     )
 
@@ -30,7 +31,7 @@ def test_identity_round_trips_fields() -> None:
     assert identity.id == _ID
     assert identity.email == "ada@example.com"
     assert identity.display_name == "Ada"
-    assert identity.password_hash == "$2b$12$abc"
+    assert identity.password_hash == "hashed-pw-stub"
     assert identity.created_at == _T0
 
 
@@ -46,7 +47,7 @@ def test_identity_rejects_naive_created_at() -> None:
             id=_ID,
             email="ada@example.com",
             display_name="Ada",
-            password_hash="$2b$12$abc",
+            password_hash="hashed-pw-stub",
             created_at=datetime(2026, 1, 1),  # noqa: DTZ001
         )
 
@@ -62,3 +63,13 @@ def test_not_authenticated_is_domain_error_and_generic() -> None:
     assert "password" not in lowered
     assert "email" not in lowered
     assert str(NotAuthenticated("x")) == "x"
+
+
+def test_email_already_registered_is_domain_error_and_hides_address() -> None:
+    exc = EmailAlreadyRegistered("ada@example.com")
+    assert isinstance(exc, DomainError)
+    # The address is kept for structured logging but never echoed in the message
+    # (the central 409 body must not become a registration-enumeration oracle).
+    assert exc.email == "ada@example.com"
+    assert "ada@example.com" not in str(exc)
+    assert str(exc)  # non-empty human-facing detail
