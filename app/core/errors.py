@@ -25,12 +25,14 @@ from app.care.domain.exceptions import (
     SelfTreatment,
 )
 from app.core.exceptions import DomainError, NotAuthenticated
+from app.identity.domain.exceptions import EmailAlreadyRegistered
 
 logger = logging.getLogger("kinetic")
 
-# {domain exception -> HTTP status} — the auth-design table, single home.
+# {domain exception -> HTTP status}: the auth-design table, single home.
 _DOMAIN_STATUS: dict[type[Exception], int] = {
     NotAuthenticated: 401,
+    EmailAlreadyRegistered: 409,
     Forbidden: 403,
     SelfTreatment: 422,
     NotACurrentMember: 422,
@@ -41,11 +43,17 @@ _DEFAULT_DOMAIN_STATUS = 422  # any future DomainError without an explicit mappi
 
 
 def _problem(status: int, title: str, detail: str) -> JSONResponse:
-    """Build an RFC 7807 ``application/problem+json`` response."""
+    """Build an RFC 7807 ``application/problem+json`` response.
+
+    A 401 additionally carries ``WWW-Authenticate: Bearer`` (RFC 7235 requires a
+    challenge on every 401); this is its single home, additive to the body.
+    """
+    headers = {"WWW-Authenticate": "Bearer"} if status == 401 else None
     return JSONResponse(
         status_code=status,
         content={"type": "about:blank", "title": title, "status": status, "detail": detail},
         media_type="application/problem+json",
+        headers=headers,
     )
 
 

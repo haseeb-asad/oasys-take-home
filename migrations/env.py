@@ -4,8 +4,8 @@ Hand-authored per decision A2. The database URL is read from get_settings() (a
 SecretStr) and passed straight to Alembic, never through alembic.ini /
 ConfigParser, so a percent-encoded password is not mangled by interpolation and
 the credential never lands in a tracked config file. target_metadata is
-Base.metadata; future ORM model modules must be imported here so autogenerate
-sees their tables (none yet; 0001 is raw DDL).
+Base.metadata; ORM model modules are imported below so autogenerate diffs see
+their tables (migrations themselves stay hand-authored per A2).
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from sqlalchemy import create_engine, pool
 
 from app.core.config import get_settings
 from app.core.database import Base
+from app.identity import orm  # noqa: F401  (registers identities on Base.metadata)
 
 config = context.config
 if config.config_file_name is not None:

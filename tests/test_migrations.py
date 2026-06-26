@@ -21,9 +21,10 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _EXTENSIONS = ("pgcrypto", "btree_gist", "citext")
 
 
-def test_alembic_config_loads_and_revision_0001_is_head(alembic_cfg: Config) -> None:
+def test_alembic_config_loads_and_revision_chain(alembic_cfg: Config) -> None:
     script = ScriptDirectory.from_config(alembic_cfg)
-    assert script.get_current_head() == "0001"
+    assert script.get_current_head() == "0002"
+    assert script.get_revision("0002").down_revision == "0001"
     assert script.get_revision("0001").down_revision is None
 
 
@@ -39,7 +40,35 @@ def test_extensions_created_by_migration(db_engine: Engine) -> None:
         extensions = set(conn.scalars(text("SELECT extname FROM pg_extension")).all())
         version = conn.scalar(text("SELECT version_num FROM alembic_version"))
     assert set(_EXTENSIONS) <= extensions
-    assert version == "0001"
+    assert version == "0002"
+
+
+def test_identities_table_created(db_engine: Engine) -> None:
+    expected_columns = {"id", "email", "display_name", "password_hash", "created_at"}
+    with db_engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT column_name, data_type, udt_name FROM information_schema.columns "
+                "WHERE table_name = 'identities'"
+            )
+        ).all()
+        constraints = set(
+            conn.scalars(
+                text(
+                    "SELECT constraint_name FROM information_schema.table_constraints "
+                    "WHERE table_name = 'identities'"
+                )
+            ).all()
+        )
+        version = conn.scalar(text("SELECT version_num FROM alembic_version"))
+    columns = {row[0]: (row[1], row[2]) for row in rows}
+    assert set(columns) == expected_columns
+    assert version == "0002"
+    # CITEXT email + TIMESTAMPTZ created_at (citext reports as a USER-DEFINED type
+    # whose udt_name is 'citext'); these guard case-insensitivity + the naive trap.
+    assert columns["email"][1] == "citext"
+    assert columns["created_at"][0] == "timestamp with time zone"
+    assert "uq_identities_email" in constraints
 
 
 def test_upgrade_offline_emits_create_extension(
