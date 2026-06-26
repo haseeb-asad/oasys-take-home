@@ -52,34 +52,6 @@ Full design — aggregate shape & methods, invariants, the effective-dated core 
 
 ---
 
-## Build sequence (commit plan)
-
-**Principle:** all pure logic (domain + auth/authz) is built and **unit-tested with no DB** (std 1 + A5 — domain reads data via ports/fakes; repositories implement those ports in Phase 2). The API lands before seed/tests, **never last**. Each row = one logical commit, confirmed before it is made.
-
-**Done:** `chore: scaffold project structure + local setup` · `chore: per-domain test folders for TDD`. New work **fills the empty stubs**, it does not re-scaffold.
-
-**Phase 1 — pure, no DB (each heavily unit-tested):**
-1. `feat: care domain — Episode aggregate` — entities, VOs, invariants, methods, injectable `now` (the graded core, first)
-2. `feat: authz — capabilities + role→grid` (9 caps + the grid, single home)
-3. `feat: authz — PDP` — `ActorContext`-scoped `allowed_capabilities()`/`can()`/`require()`, all surface branches; care membership via the `Episode`, active-provider/org-admin via a **port**
-4. `feat: auth — config, password hashing, JWT/token logic` — via an identity-lookup **port**
-
-**Phase 2 — infra wraps the proven logic:**
-5. `feat: core infra` — DB engine/session, **Alembic init** (`alembic.ini` + `env.py` → settings + metadata naming conventions), exception→HTTP, app wiring, `/health`; also add `alembic upgrade head` to `setup.sh` before seed
-6. `feat: extensions migration (0001)` — `pgcrypto`/`btree_gist`/`citext` first
-7. `feat: identity persistence + /v1/auth API` — ORM, `0002`, repo, service, register/login (**first working slice**)
-8. `feat: organization context` — ORM, `0003`
-9. `feat: care-team persistence` — ORM, `0004` (+EXCLUDE/CHECK), repo (model⇄domain), service; **wire PDP port → repo**
-10. `feat: care-team /v1 API` — thin routers, schemas, PDP as router dependency (PEP)
-
-**Phase 3 — prove + document:**
-11. `feat: seed script` — Sara world (FitGym +org_admin, staffless Khan Solo Practice)
-12. `test: scenario suite` — 7 scenarios through the API on real PG, rolled back per test
-13. `feat: expand/contract migration` — legacy one-provider-per-client table + backfill to episodes (member + responsible + face per pairing) + a test proving the backfill; **built last so it is purely additive — first to drop if time runs short**
-14. `docs: README + open questions` — deliverables #2 + #3
-
----
-
 ## Open questions for Oasys (deliverable #3, running list)
 
 > **Ship note:** `planning/` is committed, so this list ships with the repo; still surface the key open questions in the README for the reviewer's convenience.

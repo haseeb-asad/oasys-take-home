@@ -28,6 +28,8 @@ jobs:
 
     env:
       DATABASE_URL: postgresql+psycopg://kinetic:kinetic@localhost:5432/kinetic
+      # Exists only so the DB integration test can boot get_settings(); never signs real tokens.
+      JWT_SECRET_KEY: ci-only-secret-not-used-for-signing-0123456789
 
     steps:
       - uses: actions/checkout@v4

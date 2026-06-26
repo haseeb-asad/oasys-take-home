@@ -39,6 +39,7 @@ files = ["app", "tests"]
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib"
+pythonpath = ["."]
 testpaths = ["app", "tests"]
 # Per-domain unit tests live in app/<context>/tests/ (TDD); cross-context
 # scenario/integration tests live in the top-level tests/.
