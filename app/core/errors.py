@@ -17,6 +17,7 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.authz.exceptions import Forbidden
 from app.care.domain.exceptions import (
     EpisodeClosed,
     NotACurrentMember,
@@ -29,6 +30,7 @@ logger = logging.getLogger("kinetic")
 
 # {domain exception -> HTTP status} — the auth-design table, single home.
 _DOMAIN_STATUS: dict[type[Exception], int] = {
+    Forbidden: 403,
     SelfTreatment: 422,
     NotACurrentMember: 422,
     EpisodeClosed: 409,
