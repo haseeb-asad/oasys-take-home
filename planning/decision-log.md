@@ -27,7 +27,7 @@
 | A8 | Request/response models | **Separate `XCreate` / `XUpdate` / `XOut`** (not one shared class) | Input ≠ output ≠ storage. `Create` has password/no id; `Out` has id/timestamps/no password; `Update` all-optional. Prevents nullable hacks + hash leaks. = Spring request/response DTOs. |
 | A9 | API style | **REST, always `response_model`** | Explicit output contract; never leak DB fields. |
 | A10 | API versioning | **`/v1/*`** | Free now, painful to retrofit. (`/api/v1` not required.) |
-| A11 | Auth | **JWT access token, OAuth2 password flow, `passlib[bcrypt]`, `get_current_user` dependency** | FastAPI is built around this; least friction. Authz is **two-layer** (coarse `require_profile` + contextual PDP), not scattered checks — full design in `auth-authz-design.md`. |
+| A11 | Auth | **JWT access token, OAuth2 password flow, `passlib[bcrypt]`, `get_current_user` dependency** | FastAPI is built around this; least friction. Authz is **two-layer** (coarse `require_profile` + contextual PDP), not scattered checks. The PDP is **actor-context-scoped** — each request acts on exactly one surface (`client`/`provider`/`org_staff`) fixed by `require_profile`, and an `allowed_capabilities()` resolver evaluates only that surface's branches (replacing the earlier union-of-all-hats model); full design in `auth-authz-design.md`. |
 | A12 | Auth — cut | No social login, no SSO, **no refresh-token rotation**, invites **stubbed** as token/record (no email), **no true/immediate revocation — soft-discard only** | Brief explicitly grants skipping these; soft-discard keeps history per the append-only model (rationale in `auth-authz-design.md`). |
 | A13 | Postgres extensions | **pgcrypto** (`gen_random_uuid()` for UUID PKs); **btree_gist** for temporal EXCLUDE constraints; **citext** for email (optional, nice) | UUID PKs avoid leaking row counts/sequential IDs. `btree_gist` enforces no overlapping effective periods. citext = case-insensitive email without `LOWER()` everywhere. |
 | A14 | ASGI server | **uvicorn** (`uvicorn app.main:app --reload`) | FastAPI is ASGI; uvicorn is the actual server. gunicorn is a process manager (prod hardening, out of scope). |
@@ -59,7 +59,7 @@ Full design — aggregate shape & methods, invariants, the effective-dated core 
 **Phase 1 — pure, no DB (each heavily unit-tested):**
 1. `feat: care domain — Episode aggregate` — entities, VOs, invariants, methods, injectable `now` (the graded core, first)
 2. `feat: authz — capabilities + role→grid` (9 caps + the grid, single home)
-3. `feat: authz — PDP` — `can()`/`require()`, all branches; reads membership via a **port**
+3. `feat: authz — PDP` — `ActorContext`-scoped `allowed_capabilities()`/`can()`/`require()`, all surface branches; care membership via the `Episode`, active-provider/org-admin via a **port**
 4. `feat: auth — config, password hashing, JWT/token logic` — via an identity-lookup **port**
 
 **Phase 2 — infra wraps the proven logic:**

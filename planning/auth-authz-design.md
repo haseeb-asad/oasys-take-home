@@ -3,7 +3,7 @@
 **Project:** Kinetic (Oasys)
 **Stack:** FastAPI · Pydantic · PostgreSQL · SQLAlchemy 2.0 (sync)
 **Owner:** Haseeb Asad
-**Status:** Design locked; PDP interface stable; membership lookup is resolved against the `Episode` aggregate.
+**Status:** Design locked; PDP is **actor-context-scoped** (per-request surface; resolver + thin gate); membership lookup is resolved against the `Episode` aggregate.
 **Captured:** 2026-06-18
 
 > **Cross-refs (single source of truth, no duplication):** `decision-log.md` A11/A12 hold the locked auth choices and link here for the full design. The **[`care-team-design.md`](care-team-design.md)** owns the *membership aggregate* (the `Episode`) this PDP reads; this doc owns the *capability mapping + decision*.
@@ -13,10 +13,10 @@
 ## Summary
 
 Two-layer authorization:
-- **Layer 1 — Coarse RBAC (profile-type gating):** gates whole API surfaces by the **profile-types the caller's Identity holds** (client / provider / org_staff). Kept simple.
-- **Layer 2 — Contextual capability check (ReBAC-flavored):** the core. Access flows from server-side relationships to the resource: provider episode membership, client ownership, responsible-provider authority, or managing-org staff authority.
+- **Layer 1 — Coarse RBAC (profile-type gating):** gates whole API surfaces by the **profile-types the caller's Identity holds** (client / provider / org_staff), and **fixes the request's actor surface**. Kept simple.
+- **Layer 2 — Contextual capability check (ReBAC-flavored):** the core. **For the request's actor surface**, access flows from server-side relationships to the resource: provider episode membership, client ownership, responsible-provider authority, or managing-org staff authority.
 
-A **single PDP** (Policy Decision Point) makes every access decision. **Hand-rolled**, not a library. JWT for authentication.
+A **single PDP** (Policy Decision Point) makes every access decision from a resolved **actor context** (identity + surface). **Hand-rolled**, not a library. JWT for authentication.
 
 Rationale for two layers: both pure global models (scopes-on-token, or global roles) fail the brief because access here is *relationship-scoped and temporal* — a provider may see a client's record only while on that client's team, in a role that grants it. A global `clinical:read` scope would expose every client. Industry consensus is hybrid: coarse RBAC for broad buckets + relationship/attribute layer for fine-grained access.
 
@@ -33,11 +33,11 @@ Rationale for two layers: both pure global models (scopes-on-token, or global ro
   - *Rejected — generic Party / PartyRelationship engine:* a fully abstract party-and-relationship metamodel is the classic over-build; it buys flexibility this brief never asks for and hides the domain the exercise grades. `Identity → Profile` is the minimal shape that is the typed surface authorization gates on (and the natural home for persona data when modeled).
   - **Self-treatment is barred at the membership boundary, not here.** A provider profile may not join a care-team episode whose `client_id` is the same Identity — the **no-self-treatment invariant**, whose canonical home is the `Episode` aggregate (see [`care-team-design.md`](care-team-design.md), Q1 invariants). This section carries only the cross-ref.
 - **Onboarding / invitations (stub):** an `Invitation` record + token; **no email send**. Client self-signup allowed. Provider/org invites a client → pending `Invitation` → on accept, an **`Identity` (+ client `Profile`)** is created; any care-team membership is added **separately** via `Episode.add_member` (membership is an entity of the Episode aggregate, not created by the invite itself). **Bootstrap policy:** an active provider Profile may create/invite into an episode where that provider becomes the initial responsible member; an org_staff Profile with active admin membership in the target org may create/invite for that org. After the episode exists, team changes require `MANAGE_TEAM`.
-- **No explicit persona switch (simplified).** The token authenticates the **Identity** only (`sub`); it carries **no `active_profile` claim** and there is **no `/auth/switch` endpoint**. The profile-types the Identity holds, and all its memberships, are read **server-side per request**, so authorization considers **every** Profile the Identity holds at once — a multi-hat person (client *and* provider) is gated by whichever profile a surface requires (Layer 1) and granted by whichever membership a resource needs (Layer 2). This is enough for the brief, which never asks for persona switching; the no-self-treatment invariant is enforced at the membership boundary regardless of any "acting as" notion. **Accepted drawback (union model):** a multi-hat person always acts with the *union* of all their hats' powers — so no least-privilege / separation-of-duties, audit cannot attribute an action to a specific hat, and a compromised token carries *all* hats at once. **No security hole** (self-treatment + own-notes denial are identity-based, hat-independent), so these are **accepted for v1**. **Next (its own feature):** an explicit active hat — an `active_profile` claim baked into the **token** (token-specific), a `/auth/switch` endpoint, the PDP scoped to the active profile, **plus a UI affordance** — adopted when per-hat **traceability** or shrinking the **blast radius of a compromised token** matters.
+- **Per-request actor surface, not a token persona switch.** The token authenticates the **Identity** only (`sub`); it carries **no `active_profile` claim** and there is **no `/auth/switch` endpoint**. Instead, every request acts under exactly **one surface** — the profile-type the *route* serves (`client` / `provider` / `org_staff`), fixed by Layer 1's `require_profile` and carried into Layer 2 as an **`ActorContext(identity_id, profile_type)`**. The PDP evaluates **only the branches valid for that surface** (client → ownership self-access; provider → episode-membership + responsible-provider; org_staff → managing-org admin), not the union of every hat at once. The surface is **route-derived, server-side** — not a client claim, not a UI toggle — so it needs no token change. A multi-hat person (client *and* provider) is therefore gated *and* evaluated on the surface they are actually using: a client endpoint yields only client self-access; a provider endpoint is subject to the no-self-treatment invariant (enforced at the membership boundary). **Why surface-scoped, not union:** per-surface least privilege; the audit log can attribute an action to the hat in use; a mixed route can't allow via the wrong hat; and client-self vs provider access stays unambiguous when one person holds both. This intentionally narrows cross-hat outcomes (a client-surface request cannot borrow provider powers) while preserving the identity-based invariants: self-treatment and own-clinical-notes denial hold on *every* surface. (Within a single surface the relevant relationships still combine — on the provider surface a member's role grant and the responsible-provider grant union.) **Next (its own feature):** a *token-level* active hat — an `active_profile` claim in the token, a `/auth/switch` endpoint, plus a UI affordance — adopted when the acting hat must live in the token / persist across a session rather than being derived per request.
 - **Profile discard is soft, and that is deliberate.** Discarding a Profile sets `discarded_at` rather than deleting it (history per the append-only model). Because held profiles and memberships are read **server-side on every request**, a discard (or a removed membership) takes effect on the **next request** — no token re-issue needed for an authorization change. A provider membership grants only if the provider Identity still has an active provider Profile; an org-admin grant requires an active org_staff Profile. The token only authenticates the Identity; **true (immediate) token revocation / logout-all is a production concern — explicitly NOT built here.**
 
 ### Cut from auth
-No social login, SSO, refresh-token rotation, **token revocation/denylist (soft-discard only)**, **explicit persona-switch / `active_profile` claim (cut — authorization reads all held profiles server-side)**, MFA, rate limiting, email delivery, production hardening, **persona-specific profile data (v1 Profile is the typed surface only; typed provider/client profile tables are Next)**. (All explicitly granted as out-of-scope by the brief; persona-switch cut as un-asked breadth.)
+No social login, SSO, refresh-token rotation, **token revocation/denylist (soft-discard only)**, **token-level persona-switch / `active_profile` claim (cut — the acting surface is derived per request from the route, not baked into the token)**, MFA, rate limiting, email delivery, production hardening, **persona-specific profile data (v1 Profile is the typed surface only; typed provider/client profile tables are Next)**. (All explicitly granted as out-of-scope by the brief; persona-switch cut as un-asked breadth.)
 
 ---
 
@@ -45,7 +45,8 @@ No social login, SSO, refresh-token rotation, **token revocation/denylist (soft-
 
 - A caller acts under one or more **Profiles** (profile-types `∈ {client, provider, org_staff}`); a person may hold several, one Profile per type.
 - **Purpose:** gate entire API families ("can this caller touch org-admin endpoints at all").
-- **Mechanism:** `require_profile(...)` FastAPI dependency on routers gates a surface on **which profile-types the caller's Identity holds** (resolved server-side from the Identity's Profiles) — e.g. an endpoint only a *provider* may touch is refused for an Identity with no provider Profile, before Layer 2 runs. No "acting persona" is consulted; holding the required profile-type is sufficient at the surface, and the per-resource PDP (Layer 2) still gates the actual data.
+- **Mechanism:** `require_profile(...)` FastAPI dependency on routers gates a surface on **which profile-types the caller's Identity holds** (resolved server-side from the Identity's Profiles) — e.g. an endpoint only a *provider* may touch is refused for an Identity with no provider Profile, before Layer 2 runs. No "acting persona" is consulted; holding the required profile-type is sufficient at the surface, and the per-resource PDP (Layer 2) still gates the actual data. The profile-type a router requires also **fixes the request's actor surface** (`ActorContext.profile_type`) handed to Layer 2, so the PDP evaluates only that surface's branches.
+- **Mixed-surface route rule:** avoid PDP-protected routes that accept several surfaces at once. If a shared endpoint is unavoidable, it must choose exactly one server-owned `ActorContext` before calling the PDP (for example via separate dependencies or an explicit `actor_surface=` parameter in code). Never pass a set of profile-types into the PDP and never "try another hat" after one surface denies.
 - **Do NOT** build full OAuth2 scope machinery — the caller's set of Profiles + the `require_profile` dependency is enough.
 
 ---
@@ -54,11 +55,13 @@ No social login, SSO, refresh-token rotation, **token revocation/denylist (soft-
 
 **Decision question:** *"Can this SUBJECT perform this CAPABILITY on this RESOURCE?"*
 
-Answered by explicit PDP branches; callers do not choose or re-derive them:
-1. **Client ownership branch:** client self-access for client-facing `VIEW_*` capabilities.
-2. **Provider episode-membership branch:** active provider Profile + effective episode membership + role capability.
-3. **Responsible-provider branch:** current clinically-responsible provider grants `MANAGE_TEAM` while the episode is active.
-4. **Managing-org admin branch:** active org_staff Profile + active admin membership in the episode's `managing_org` grants the org_admin capability set.
+Answered by explicit PDP branches **selected by the actor surface**; callers do not choose or re-derive them:
+1. **Client ownership branch** *(client surface)*: client self-access for client-facing `VIEW_*` capabilities.
+2. **Provider episode-membership branch** *(provider surface)*: active provider Profile + effective episode membership + role capability.
+3. **Responsible-provider branch** *(provider surface)*: current clinically-responsible provider grants `MANAGE_TEAM` while the episode is active.
+4. **Managing-org admin branch** *(org_staff surface)*: active org_staff Profile + active admin membership in the episode's `managing_org` grants the org_admin capability set.
+
+The provider surface combines branches 2 and 3 (a member's role grant and any responsible-provider grant union *within* that surface); the client and org_staff surfaces each evaluate their single branch. No branch from another surface is consulted.
 
 **Client self-access (resolved).** A logged-in **client** is never a care-team *member* (members are the 5 provider roles), so the three questions above would deny a client *all* access — including to their own data. Layer 2 therefore has an explicit **ownership short-circuit**: when the subject's Identity owns a **client `Profile`** and that **Identity's id `== resource.client_id`** (recall `client_id` is an `identities.id`, so this is the same identity-to-identity equality as the self-treatment check), the PDP grants the client-facing `VIEW_*` set over their **own** client-scoped data (`VIEW_BASIC_PROFILE`, `VIEW_SCHEDULE`). Whether a client may also read their **own provider-authored clinical / rehab notes** (`VIEW_CLINICAL` / `VIEW_REHAB_ASSESSMENT`) is a policy the brief is silent on — **defaulted to NOT granted** by self-access, and raised as an open question (`decision-log.md`). Clients never get act capabilities via self-access. (Booking *through* the face is a scheduling action, out of scope here — not a PDP read capability.)
 
@@ -108,11 +111,13 @@ Each resource type declares the capability it demands:
 ## The PDP (single decision point)
 
 - **Module:** `authz` (own bounded context / shared kernel).
-- **Interface:**
-  - `can(subject, capability, resource_ref) -> bool`
-  - `require(subject, capability, resource_ref) -> None`  (raises `Forbidden`)
-- **Inputs it pulls:** subject identity; active Profiles; the resource's owning client + demanded capability; care-team membership (current + effective); responsible-provider assignment; managing-org staff membership; **the episode's `status`**.
-- **Closed-episode rule:** the PDP first applies the normal branch checks above; if the resource's episode is `closed`, it then grants only allowed `VIEW_*` capabilities and denies every act capability (`WRITE_*/RUN_*/MESSAGE_*/BILL/MANAGE_TEAM`) regardless of role — mirroring `care-team-design.md` invariant 3 (read is not mutation, so immutability holds). Members are **not** end-dated on close, so they keep role-limited view history.
+- **Actor context:** `ActorContext(identity_id, profile_type)` — the subject identity plus the **surface** it acts under (`client` / `provider` / `org_staff`), fixed by Layer 1's `require_profile` on the route. The PDP evaluates only the branches for that surface.
+- **Interface (resolver + thin gate):**
+  - `allowed_capabilities(actor, resource_ref) -> frozenset[Capability]` — resolves the final set the actor may exercise on the resource: its surface's branch(es), temporal membership, relationship grants, and the closed-episode overlay. **The single place policy is computed**; `now` is threaded in for the temporal checks.
+  - `can(actor, capability, resource_ref) -> bool`  ≡  `capability in allowed_capabilities(...)`
+  - `require(actor, capability, resource_ref) -> None`  ≡  raises `Forbidden` unless `can(...)`
+- **Inputs it pulls:** the actor (identity + surface); the resource's owning client + demanded capability; care-team membership (current + effective) from the `Episode`; responsible-provider assignment; **active-provider / managing-org-admin state via a port**; **the episode's `status`**.
+- **Closed-episode rule:** `allowed_capabilities` resolves the actor surface's branch(es) first; if the resource's episode is `closed`, it then drops every act capability (`WRITE_*/RUN_*/MESSAGE_*/BILL/MANAGE_TEAM`), leaving only allowed `VIEW_*` regardless of role — mirroring `care-team-design.md` invariant 3 (read is not mutation, so immutability holds). Members are **not** end-dated on close, so they keep role-limited view history.
 - **Every caller uses it** — router dependency (the PEP), service methods, even seed/verification scripts. **No surface re-derives policy.**
 
 > Dependency note: Layer 2 reads **care-team membership**. **Resolved** — the aggregate is the **`Episode`** ([`care-team-design.md`](care-team-design.md)): membership = `{provider_id, role, effective_from, effective_to}` per episode, and every resource carries its `episode_id` → `episode.client_id`. The PDP **interface is unchanged**; the membership lookup now binds to the Episode aggregate.
@@ -157,4 +162,4 @@ Rejected alternatives:
 | One access decision; no surface re-derives policy | Single `authz` PDP module |
 | Coverage has access while covering, not after | Effective-dated membership + temporal check |
 | Cross-org team | Access via membership link, not org ownership |
-| Multi-role person | One `Identity` holding multiple typed `Profile`s |
+| Multi-role person | One `Identity` holding multiple typed `Profile`s; each request acts on one **surface** (actor context), and the PDP evaluates that surface's branches |
