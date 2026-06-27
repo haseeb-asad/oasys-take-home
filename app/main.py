@@ -11,6 +11,7 @@ from fastapi import FastAPI
 
 from app.care.router import router as care_router
 from app.core.errors import register_exception_handlers
+from app.demo.router import router as demo_router
 from app.identity.router import router as identity_router
 
 
@@ -19,6 +20,7 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
     app.include_router(identity_router)
     app.include_router(care_router)
+    app.include_router(demo_router)
 
     @app.get("/health", tags=["meta"])
     def health() -> dict[str, str]:

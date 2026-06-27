@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Kinetic care-team access demo</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-2: #243044;
+    --sunken: #0b1220;
+    --ink: #e2e8f0;
+    --muted: #94a3b8;
+    --line: #334155;
+    --pass: #22c55e;
+    --fail: #ef4444;
+    --warn: #f59e0b;
+    --accent: #38bdf8;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.55 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    padding: 28px 20px 64px;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  h1 { font-size: 23px; margin: 0 0 6px; }
+  .intro { color: var(--muted); margin: 0 0 18px; max-width: 760px; }
+  .topbar {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 16px; margin-bottom: 18px;
+  }
+  .topbar .tally { font-weight: 600; }
+  .topbar .tally .ok { color: var(--pass); }
+  .topbar .tally .bad { color: var(--fail); }
+  button {
+    background: var(--accent); color: #042027; border: 0; border-radius: 8px;
+    padding: 8px 14px; font-weight: 700; cursor: pointer; font-size: 14px;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.mini {
+    background: transparent; color: var(--accent); border: 1px solid var(--accent);
+    padding: 2px 9px; font-size: 12px; font-weight: 600; border-radius: 6px;
+  }
+  button.play {
+    background: transparent; color: var(--accent); border: 1px solid var(--accent);
+    margin-left: auto; padding: 5px 12px;
+  }
+  .notice {
+    background: #422006; border: 1px solid #b45309; color: #fde68a;
+    border-radius: 10px; padding: 14px 16px; margin-bottom: 18px;
+  }
+  .notice code { font-family: var(--mono); background: rgba(0,0,0,0.35); padding: 1px 6px; border-radius: 5px; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-left-width: 5px;
+    border-left-color: var(--line); border-radius: 10px; margin-bottom: 14px; overflow: hidden;
+  }
+  .panel.pass { border-left-color: var(--pass); }
+  .panel.fail { border-left-color: var(--fail); }
+  .panel.error { border-left-color: var(--warn); }
+  .phead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 13px 16px; }
+  .chip {
+    font-size: 11px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase;
+    color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 2px 9px; white-space: nowrap;
+  }
+  .ptitle { font-weight: 700; font-size: 16px; }
+  .proves { color: var(--muted); font-size: 13px; flex-basis: 100%; margin: 0; }
+  .pill {
+    font-weight: 800; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+    border-radius: 999px; padding: 3px 11px; white-space: nowrap;
+  }
+  .pill.idle { background: rgba(148,163,184,0.18); color: var(--muted); }
+  .pill.running { background: rgba(56,189,248,0.18); color: var(--accent); }
+  .pill.pass { background: rgba(34,197,94,0.18); color: var(--pass); }
+  .pill.fail { background: rgba(239,68,68,0.18); color: var(--fail); }
+  .pill.error { background: rgba(245,158,11,0.18); color: var(--warn); }
+  .detail { border-top: 1px solid var(--line); padding: 4px 16px 16px; }
+  .sec { padding: 14px 0; border-bottom: 1px dashed var(--line); }
+  .sec:last-child { border-bottom: 0; }
+  .sec-h {
+    margin: 0 0 10px; font-size: 12px; font-weight: 800; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .kv { display: flex; gap: 10px; margin: 3px 0; flex-wrap: wrap; align-items: baseline; }
+  .kv .k { color: var(--muted); min-width: 132px; font-size: 13px; }
+  .kv .v { font-size: 13.5px; }
+  .mono { font-family: var(--mono); }
+  .small { font-size: 12.5px; }
+  .muted { color: var(--muted); }
+  .wordbreak { word-break: break-all; }
+  pre {
+    background: var(--sunken); border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 12px; overflow: auto; font-family: var(--mono); font-size: 12.5px;
+    margin: 8px 0 0; max-height: 340px; white-space: pre; tab-size: 2;
+  }
+  .reqline { font-family: var(--mono); font-size: 13.5px; margin: 2px 0 8px; }
+  .reqline .method { font-weight: 800; color: var(--accent); margin-right: 8px; }
+  .headers { background: var(--sunken); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font-family: var(--mono); font-size: 12.5px; }
+  .headers div { margin: 2px 0; }
+  .headers .hk { color: var(--accent); }
+  .status-big { font-size: 30px; font-weight: 800; line-height: 1; }
+  .status-big.ok { color: var(--pass); }
+  .status-big.bad { color: var(--fail); }
+  .status-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 6px; }
+  .verdict { font-weight: 800; font-size: 12px; letter-spacing: 0.06em; border-radius: 999px; padding: 3px 12px; }
+  .verdict.pass { background: rgba(34,197,94,0.18); color: var(--pass); }
+  .verdict.fail { background: rgba(239,68,68,0.18); color: var(--fail); }
+  .exp { font-size: 13.5px; }
+  .exp .actual.ok { color: var(--pass); font-weight: 700; }
+  .exp .actual.bad { color: var(--fail); font-weight: 700; }
+  .roster { margin-top: 10px; background: var(--panel-2); border-radius: 8px; padding: 10px 12px; }
+  .roster h4 { margin: 0 0 6px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .roster ul { margin: 0 0 10px; padding-left: 18px; }
+  .roster li { font-size: 13.5px; margin: 2px 0; }
+  .roster .role { color: var(--accent); }
+  .roster .cur { color: var(--accent); font-weight: 700; }
+  .why { font-size: 14px; margin: 0; }
+  .why code { font-family: var(--mono); background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 5px; }
+  .copied { color: var(--pass); font-size: 12px; margin-left: 8px; }
+  .notelink { color: var(--muted); font-size: 12.5px; margin-top: 8px; font-style: italic; }
+  .tphase { font-weight: 800; font-size: 15.5px; margin: 12px 0 4px; }
+  .tphase.inside { color: var(--pass); }
+  .tphase.outside { color: var(--fail); }
+  .tverdict { font-size: 14px; font-weight: 600; margin: 0; }
+  footer { color: var(--muted); font-size: 12.5px; margin-top: 28px; border-top: 1px solid var(--line); padding-top: 14px; }
+  footer code { font-family: var(--mono); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Kinetic care-team access demo</h1>
+  <p class="intro">
+    Each panel below replays ONE named access scenario against this server's live,
+    same-origin <code>/v1</code> API: a real login, a real authorized request, the
+    decoded token, and the authorization reasoning behind the outcome. Every
+    scenario is read-only (reads and denied writes only), so playing them never
+    mutates the seeded Sara world; play one at a time or use Play all.
+  </p>
+
+  <div id="seedNotice" class="notice" hidden>
+    <strong>Seed not found.</strong>
+    This page drives the committed "Sara world", but its core entities are not in
+    the database yet. Run <code>python -m scripts.seed</code> (or <code>./setup.sh</code>)
+    against the live database, then reload this page. Play is disabled until then.
+  </div>
+
+  <div class="topbar">
+    <div id="tally" class="tally">Idle. Pick a scenario, or Play all.</div>
+    <button id="playAll" type="button">Play all</button>
+  </div>
+
+  <div id="scenarios"></div>
+
+  <footer>
+    This page replays the full named set of non-mutating care-team access scenarios
+    live against this server's same-origin <code>/v1</code> API. That now includes the
+    time-bounded coverage scenario (S3): its expected status is computed at play time
+    from the current clock against Lee's seeded coverage window, then checked against
+    what the live server actually returns. The closed-episode scenario (S4) replays
+    against the seeded Prior Rehab episode (a safe read plus a denied write). Tokens are
+    cached per actor (each actor logs in once) and every panel shows that actor's token
+    and decoded claims.
+  </footer>
+</div>
+
+<script>
+"use strict";
+
+// The seed ids (deterministic uuid5) + password + seeded flag are injected
+// server-side: app/demo/router.py replaces the placeholder below with
+// json.dumps(seed). All values are strings except SEED.seeded (bool).
+const SEED = __SEED_JSON__;
+
+// The seed world's fixed login emails (stable business keys; mirror scripts/seed.py).
+const ACTOR = {
+  khan:   { name: "Dr Khan",      role: "physiotherapist, responsible provider (Shoulder)", email: "khan@example.com" },
+  patel:  { name: "Dr Patel",     role: "physician, Shoulder member",                        email: "patel@example.com" },
+  lee:    { name: "Dr Lee",       role: "physiotherapist, time-bounded coverage on Shoulder", email: "lee@example.com" },
+  mike:   { name: "Mike Trainer", role: "personal trainer, General episode only",            email: "mike@example.com" },
+  olivia: { name: "Olivia Admin", role: "FitGym org staff (admin)",                          email: "admin@example.com" },
+};
+
+// Provider-id -> display name, for the roster and the decoded-token sub mapping.
+const PROVIDER_NAME = {
+  sara: "Sara Client",
+  mike: "Mike Trainer",
+  khan: "Dr Khan",
+  patel: "Dr Patel",
+  lee: "Dr Lee",
+  olivia: "Olivia Admin",
+};
+const ID_TO_NAME = {};
+Object.keys(PROVIDER_NAME).forEach(function (handle) {
+  if (SEED[handle]) ID_TO_NAME[SEED[handle]] = PROVIDER_NAME[handle];
+});
+function nameFor(id) {
+  return ID_TO_NAME[id] || id;
+}
+
+// The ten non-mutating scenarios, mirroring tests/test_scenarios.py statuses.
+const SHOULDER = SEED.shoulder;
+const GENERAL = SEED.general;
+const CLOSED = SEED.closed;
+const ADD_MIKE = { provider_id: SEED.mike, role: "physician", change_reason: "demo (denied, no mutation)" };
+
+const SCENARIOS = [
+  {
+    id: "s1",
+    tag: "S1 / S7",
+    title: "Khan reads the Shoulder episode",
+    actor: "khan",
+    proves: "The responsible provider sees the full multi-role roster plus its append-only history.",
+    method: "GET",
+    path: "/v1/episodes/" + SHOULDER + "?acting_as=provider",
+    expected: 200,
+    why: "Khan is the responsible provider on the Shoulder episode, so VIEW_BASIC_PROFILE is granted to him as a current member acting as a provider; the read returns 200 with the whole team and its history.",
+  },
+  {
+    id: "s5",
+    tag: "S5",
+    title: "Patel reads the Shoulder clinical records",
+    actor: "patel",
+    proves: "A physician member reads clinical records even though he staffs neither managing org.",
+    method: "GET",
+    path: "/v1/episodes/" + SHOULDER + "/clinical-records",
+    expected: 200,
+    why: "Patel is a current Shoulder member and the physician role grid carries VIEW_CLINICAL, so membership AND role grant the read (200); cross-org staffing is irrelevant once you are on the team.",
+  },
+  {
+    id: "s3",
+    tag: "S3",
+    title: "Lee reads the Shoulder clinical records (time-bounded)",
+    actor: "lee",
+    timeBased: true,
+    proves: "Time-bounded coverage: access is decided against the server's clock at the moment of the request.",
+    method: "GET",
+    path: "/v1/episodes/" + SHOULDER + "/clinical-records",
+    // No static expected: for a timeBased scenario the expected status is computed at
+    // play time from `new Date()` vs the half-open [coverage_from, coverage_to) window.
+  },
+  {
+    id: "s6deny-read",
+    tag: "S6",
+    title: "Mike is denied the Shoulder clinical records",
+    actor: "mike",
+    proves: "Authority stops at the episode boundary: a provider on a different episode gets nothing here.",
+    method: "GET",
+    path: "/v1/episodes/" + SHOULDER + "/clinical-records",
+    expected: 403,
+    why: "Mike staffs the General episode only and is not a Shoulder member, so the episode-boundary check denies before any role grid is even consulted (403).",
+  },
+  {
+    id: "s1deny",
+    tag: "S1 deny",
+    title: "Patel cannot add a Shoulder member (member, not responsible)",
+    actor: "patel",
+    proves: "Membership never grants team management; only the responsible provider or an org admin can.",
+    method: "POST",
+    path: "/v1/episodes/" + SHOULDER + "/members?acting_as=provider",
+    body: ADD_MIKE,
+    expected: 403,
+    why: "Patel is a current member but not the responsible provider, and the physician grid lacks MANAGE_TEAM, so the PDP denies (403); the POST never reaches the service, so nothing mutates.",
+  },
+  {
+    id: "s6deny-write",
+    tag: "S6 deny",
+    title: "Olivia cannot add a member across orgs",
+    actor: "olivia",
+    proves: "Org-staff authority is scoped to its OWN org; it cannot reach another org's episode.",
+    method: "POST",
+    path: "/v1/episodes/" + SHOULDER + "/members?acting_as=org_staff",
+    body: ADD_MIKE,
+    expected: 403,
+    why: "Olivia is a FitGym admin, but the Shoulder episode is managed by Khan Solo Practice, so her org-staff grant does not apply and MANAGE_TEAM is denied (403); no mutation occurs.",
+  },
+  {
+    id: "s6pos",
+    tag: "S6 positive",
+    title: "Olivia reads her own managing-org episode",
+    actor: "olivia",
+    proves: "The SAME org-staff authority DOES reach an episode her org manages.",
+    method: "GET",
+    path: "/v1/episodes/" + GENERAL + "?acting_as=org_staff",
+    expected: 200,
+    why: "The General episode's managing_org_id is FitGym, where Olivia is an admin, so her org-staff read is granted (200): the exact same authority that was denied on the Shoulder episode.",
+  },
+  {
+    id: "s6deny-readown",
+    tag: "S6",
+    title: "Olivia is denied a foreign-org episode read",
+    actor: "olivia",
+    proves: "Her authority does not extend to an episode another org manages.",
+    method: "GET",
+    path: "/v1/episodes/" + SHOULDER + "?acting_as=org_staff",
+    expected: 403,
+    why: "The Shoulder episode is managed by Khan Solo Practice, not FitGym, so Olivia's org-staff read is denied (403); org-staff scope is the managing org and nothing wider.",
+  },
+  {
+    id: "s4read",
+    tag: "S4",
+    title: "Khan reads the CLOSED Prior Rehab episode",
+    actor: "khan",
+    proves: "A closed episode still serves reads to its team.",
+    method: "GET",
+    path: "/v1/episodes/" + CLOSED + "?acting_as=provider",
+    expected: 200,
+    why: "The closed-episode overlay keeps the VIEW_* capabilities, so a member's read survives; the response shows status closed plus the (now historical) roster.",
+  },
+  {
+    id: "s4write",
+    tag: "S4",
+    title: "Khan cannot write to the CLOSED Prior Rehab episode",
+    actor: "khan",
+    proves: "A closed episode suppresses every act, even for the responsible provider.",
+    method: "POST",
+    path: "/v1/episodes/" + CLOSED + "/clinical-records",
+    body: { body: "demo note (denied)" },
+    expected: 403,
+    why: "The PDP strips the act capabilities (WRITE_CLINICAL, MANAGE_TEAM) once status is closed, so the write is denied (403) before the service runs; nothing mutates.",
+  },
+];
+
+// --- time-aware evaluation (S3): now vs Lee's injected coverage window -------
+
+// Evaluate the current clock against the half-open [coverage_from, coverage_to)
+// window injected by the server. Returns { win, now, phase, expected }, or
+// { win: null } when the window is absent (unseeded world) so S3 can degrade.
+function timeEvaluate() {
+  if (!SEED.coverage_from || !SEED.coverage_to) return { win: null };
+  const from = new Date(SEED.coverage_from);
+  const to = new Date(SEED.coverage_to);
+  if (isNaN(from.getTime()) || isNaN(to.getTime())) return { win: null };
+  const now = new Date();
+  const phase = now < from ? "before" : (now < to ? "inside" : "after");
+  const expected = phase === "inside" ? 200 : 403;
+  return { win: { from: from, to: to }, now: now, phase: phase, expected: expected };
+}
+
+// The S3 reasoning, written from the computed phase so it reads correctly whether
+// now is before, inside, or after Lee's coverage window (no time-travel / as-of copy).
+function buildS3Why(timeEval) {
+  if (!timeEval || !timeEval.win) {
+    return "Lee is on the Shoulder team only for a bounded coverage window, decided " +
+      "against the server's clock at request time. That window is not present here, " +
+      "so the time math is skipped and the live status above stands on its own.";
+  }
+  const inside = timeEval.phase === "inside";
+  const memberPhrase = inside ? "a current" : "not a current";
+  const readPhrase = inside ? "allowed (200)" : "denied (403)";
+  const tail = inside
+    ? "The same membership returns 403 the moment now leaves the window."
+    : "The same membership returns 200 while now is inside the window.";
+  return "Lee is on the Shoulder team only for the coverage window. Evaluated at the " +
+    "current server time, now is " + timeEval.phase + " the window, so Lee is " +
+    memberPhrase + " member and the clinical read is " + readPhrase + ". " + tail;
+}
+
+// --- live request plumbing --------------------------------------------------
+
+const tokens = {};
+
+async function ensureLogin(handle) {
+  if (tokens[handle]) return tokens[handle];
+  const body = new URLSearchParams();
+  body.set("username", ACTOR[handle].email);
+  body.set("password", SEED.password);
+  const resp = await fetch("/v1/auth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+  if (!resp.ok) {
+    throw new Error("login failed for " + handle + " (HTTP " + resp.status + ")");
+  }
+  const data = await resp.json();
+  tokens[handle] = data.access_token;
+  return tokens[handle];
+}
+
+async function runRequest(sc, token) {
+  const opts = { method: sc.method, headers: { "Authorization": "Bearer " + token } };
+  if (sc.body) {
+    opts.headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(sc.body);
+  }
+  const resp = await fetch(sc.path, opts);
+  let data = null;
+  try { data = await resp.json(); } catch (e) { data = null; }
+  return { status: resp.status, data: data };
+}
+
+// --- JWT decode (no signature check: the payload is public base64url) --------
+
+function b64urlDecode(part) {
+  let s = part.replace(/-/g, "+").replace(/_/g, "/");
+  while (s.length % 4) s += "=";
+  const bin = atob(s);
+  const bytes = Uint8Array.from(bin, function (c) { return c.charCodeAt(0); });
+  return new TextDecoder().decode(bytes);
+}
+function decodeJwt(token) {
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  try {
+    return { header: JSON.parse(b64urlDecode(parts[0])), payload: JSON.parse(b64urlDecode(parts[1])) };
+  } catch (e) {
+    return null;
+  }
+}
+function fmtUnix(secs) {
+  if (typeof secs !== "number") return String(secs);
+  return new Date(secs * 1000).toLocaleString();
+}
+function fmtIso(iso) {
+  if (!iso) return "open";
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? iso : d.toLocaleString();
+}
+
+// --- DOM helpers (textContent for all dynamic data: XSS-safe) ----------------
+
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined && text !== null) node.textContent = text;
+  return node;
+}
+function section(title) {
+  const s = el("section", "sec");
+  s.appendChild(el("div", "sec-h", title));
+  return s;
+}
+function kv(label, value, valueCls) {
+  const row = el("div", "kv");
+  row.appendChild(el("span", "k", label));
+  row.appendChild(el("span", "v" + (valueCls ? " " + valueCls : ""), value));
+  return row;
+}
+function shortToken(token) {
+  return token.length > 40 ? token.slice(0, 28) + "..." + token.slice(-6) : token;
+}
+
+// --- section 1: actor + token (login, bearer, decoded JWT) -------------------
+
+function sectionActorToken(sc, token, decoded) {
+  const s = section("1 · Actor and token");
+  const a = ACTOR[sc.actor];
+  s.appendChild(kv("Actor", a.name + " · " + a.role));
+  s.appendChild(kv("Login", "POST /v1/auth/token", "mono"));
+  s.appendChild(kv("Form body", "username=" + a.email + "  password=" + SEED.password, "mono small"));
+
+  // Bearer token: truncated by default, reveal toggles to the full string.
+  const tokRow = el("div", "kv");
+  tokRow.appendChild(el("span", "k", "Bearer token"));
+  const code = el("code", "v mono small wordbreak");
+  code.textContent = shortToken(token);
+  let shown = false;
+  const reveal = el("button", "mini", "reveal");
+  reveal.type = "button";
+  reveal.addEventListener("click", function () {
+    shown = !shown;
+    code.textContent = shown ? token : shortToken(token);
+    reveal.textContent = shown ? "hide" : "reveal";
+  });
+  const tokWrap = el("span", "v");
+  tokWrap.appendChild(code);
+  tokWrap.appendChild(document.createTextNode(" "));
+  tokWrap.appendChild(reveal);
+  tokRow.appendChild(tokWrap);
+  s.appendChild(tokRow);
+
+  // Decoded JWT: header {alg,typ} + payload {sub->name, iat/exp as local times}.
+  s.appendChild(el("div", "sec-h", "Decoded JWT"));
+  if (!decoded) {
+    s.appendChild(el("div", "muted small", "(could not decode the token)"));
+  } else {
+    const header = el("pre", "mono small");
+    header.textContent = "header " + JSON.stringify(decoded.header);
+    s.appendChild(header);
+    const p = decoded.payload;
+    s.appendChild(kv("sub", String(p.sub) + "  (" + nameFor(p.sub) + ")", "mono small wordbreak"));
+    s.appendChild(kv("iat", String(p.iat) + "  (" + fmtUnix(p.iat) + ")", "mono small"));
+    s.appendChild(kv("exp", String(p.exp) + "  (" + fmtUnix(p.exp) + ")", "mono small"));
+  }
+  const note = el("p", "notelink");
+  note.appendChild(document.createTextNode("A JWT is signed (HS256), not encrypted; the claims are public base64url. The server carries only "));
+  note.appendChild(el("code", "mono", "sub"));
+  note.appendChild(document.createTextNode(" and re-derives authorization on every request (no role in the token)."));
+  s.appendChild(note);
+  return s;
+}
+
+// --- section 2: request (method, headers, body, copy-as-curl) ----------------
+
+function buildCurl(sc, token) {
+  const url = window.location.origin + sc.path;
+  const lines = [
+    "curl -X " + sc.method + " '" + url + "'",
+    "  -H 'Authorization: Bearer " + token + "'",
+  ];
+  if (sc.body) {
+    lines.push("  -H 'Content-Type: application/json'");
+    lines.push("  -d '" + JSON.stringify(sc.body) + "'");
+  }
+  return lines.join(" \\\n");
+}
+
+function sectionRequest(sc, token) {
+  const s = section("2 · Request");
+  const line = el("div", "reqline");
+  line.appendChild(el("span", "method", sc.method));
+  line.appendChild(document.createTextNode(sc.path));
+  s.appendChild(line);
+
+  const headers = el("div", "headers");
+  const auth = el("div");
+  auth.appendChild(el("span", "hk", "Authorization: "));
+  auth.appendChild(document.createTextNode("Bearer " + shortToken(token)));
+  headers.appendChild(auth);
+  if (sc.body) {
+    const ct = el("div");
+    ct.appendChild(el("span", "hk", "Content-Type: "));
+    ct.appendChild(document.createTextNode("application/json"));
+    headers.appendChild(ct);
+  }
+  s.appendChild(headers);
+
+  if (sc.body) {
+    s.appendChild(el("div", "sec-h", "Body"));
+    const pre = el("pre", "mono small");
+    pre.textContent = JSON.stringify(sc.body, null, 2);
+    s.appendChild(pre);
+  }
+
+  const curlRow = el("div", "kv");
+  const copyBtn = el("button", "mini", "Copy as curl");
+  copyBtn.type = "button";
+  const status = el("span", "copied");
+  status.hidden = true;
+  copyBtn.addEventListener("click", function () {
+    const text = buildCurl(sc, token);
+    const done = function () { status.textContent = "copied"; status.hidden = false; };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text); done(); });
+    } else {
+      fallbackCopy(text);
+      done();
+    }
+  });
+  curlRow.appendChild(copyBtn);
+  curlRow.appendChild(status);
+  s.appendChild(curlRow);
+  return s;
+}
+
+function fallbackCopy(text) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.setAttribute("readonly", "");
+  ta.style.position = "absolute";
+  ta.style.left = "-9999px";
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand("copy"); } catch (e) { /* best effort */ }
+  document.body.removeChild(ta);
+}
+
+// --- section 3: response (status, expected vs actual, JSON, roster) ----------
+
+function sectionResponse(sc, result, pass, expected) {
+  const s = section("3 · Response");
+  const row = el("div", "status-row");
+  row.appendChild(el("div", "status-big " + (pass ? "ok" : "bad"), String(result.status)));
+  const exp = el("div", "exp");
+  exp.appendChild(document.createTextNode("expected "));
+  exp.appendChild(el("b", null, String(expected)));
+  exp.appendChild(document.createTextNode(" · actual "));
+  exp.appendChild(el("b", "actual " + (pass ? "ok" : "bad"), String(result.status)));
+  row.appendChild(exp);
+  row.appendChild(el("span", "verdict " + (pass ? "pass" : "fail"), pass ? "PASS" : "FAIL"));
+  s.appendChild(row);
+
+  const pre = el("pre", "mono small");
+  pre.textContent = result.data === null ? "(no JSON body)" : JSON.stringify(result.data, null, 2);
+  s.appendChild(pre);
+
+  if (result.data && Array.isArray(result.data.members)) {
+    s.appendChild(renderRoster(result.data));
+  }
+  return s;
+}
+
+function renderRoster(data) {
+  const box = el("div", "roster");
+  box.appendChild(el("h4", null, "Team roster"));
+  const ul = el("ul");
+  data.members.forEach(function (m) {
+    const li = el("li");
+    li.appendChild(document.createTextNode(nameFor(m.provider_id) + " "));
+    li.appendChild(el("span", "role", m.role));
+    const coverage = m.effective_to === null
+      ? "from " + fmtIso(m.effective_from) + ", open"
+      : fmtIso(m.effective_from) + " → " + fmtIso(m.effective_to);
+    li.appendChild(document.createTextNode(" (" + coverage + ")"));
+    ul.appendChild(li);
+  });
+  box.appendChild(ul);
+
+  box.appendChild(el("h4", null, "Current responsible / booking face"));
+  const cur = el("ul");
+  const r = el("li");
+  r.appendChild(document.createTextNode("Responsible: "));
+  r.appendChild(el("span", "cur", nameFor(data.responsible_provider_id)));
+  cur.appendChild(r);
+  const f = el("li");
+  f.appendChild(document.createTextNode("Booking face: "));
+  f.appendChild(el("span", "cur", nameFor(data.face_provider_id)));
+  cur.appendChild(f);
+  box.appendChild(cur);
+  return box;
+}
+
+// --- time evaluation section (S3 only): now vs the coverage window -----------
+
+function sectionTimeEval(timeEval) {
+  const s = section("Time evaluation");
+  if (!timeEval || !timeEval.win) {
+    s.appendChild(el("p", "why",
+      "Lee's coverage window was not found in the seed, so the time math is skipped; " +
+      "the live request below still ran against the server's clock."));
+    return s;
+  }
+  const inside = timeEval.phase === "inside";
+  const phaseWord = timeEval.phase === "before" ? "BEFORE" : (inside ? "INSIDE" : "AFTER");
+  s.appendChild(kv("Coverage window",
+    timeEval.win.from.toLocaleString() + " → " + timeEval.win.to.toLocaleString(), "mono"));
+  s.appendChild(kv("Current time", timeEval.now.toLocaleString(), "mono"));
+  s.appendChild(el("p", "tphase " + (inside ? "inside" : "outside"),
+    "now is " + phaseWord + " Lee's coverage window"));
+  const verdict = "so at the current time Lee " + (inside ? "IS" : "IS NOT") +
+    " a current member, and this read should " + (inside ? "SUCCEED (200)" : "FAIL (403)");
+  s.appendChild(el("p", "tverdict", verdict));
+  return s;
+}
+
+// --- section 4: why ----------------------------------------------------------
+
+function sectionWhy(why) {
+  const s = section("4 · Why this outcome");
+  s.appendChild(el("p", "why", why));
+  return s;
+}
+
+// --- panels ------------------------------------------------------------------
+
+const panels = {};
+
+function buildPanel(sc) {
+  const root = el("div", "panel idle");
+  const head = el("div", "phead");
+  head.appendChild(el("span", "chip", sc.tag));
+  head.appendChild(el("span", "ptitle", sc.title));
+  const pill = el("span", "pill idle", "idle");
+  head.appendChild(pill);
+  const play = el("button", "play", "▶ Play");
+  play.type = "button";
+  head.appendChild(play);
+  head.appendChild(el("p", "proves", sc.proves));
+  root.appendChild(head);
+
+  const detail = el("div", "detail");
+  detail.hidden = true;
+  root.appendChild(detail);
+
+  play.addEventListener("click", function () { playScenario(sc); });
+  panels[sc.id] = { root: root, pill: pill, play: play, detail: detail };
+  return root;
+}
+
+function setPill(sc, state, label) {
+  const p = panels[sc.id];
+  p.pill.className = "pill " + state;
+  p.pill.textContent = label;
+  p.root.className = "panel " + (state === "running" || state === "idle" ? "idle" : state);
+}
+
+async function playScenario(sc) {
+  const p = panels[sc.id];
+  setPill(sc, "running", "running");
+  p.play.disabled = true;
+  try {
+    const token = await ensureLogin(sc.actor);
+    const decoded = decodeJwt(token);
+    // For a timeBased scenario the expected status is decided live, from the current
+    // clock vs the injected window (403 when the window is absent), not a static value.
+    let timeEval = null;
+    let expected = sc.expected;
+    if (sc.timeBased) {
+      timeEval = timeEvaluate();
+      expected = timeEval.win ? timeEval.expected : 403;
+    }
+    const result = await runRequest(sc, token);
+    const pass = result.status === expected;
+    p.detail.innerHTML = "";
+    p.detail.appendChild(sectionActorToken(sc, token, decoded));
+    p.detail.appendChild(sectionRequest(sc, token));
+    if (sc.timeBased) p.detail.appendChild(sectionTimeEval(timeEval));
+    p.detail.appendChild(sectionResponse(sc, result, pass, expected));
+    p.detail.appendChild(sectionWhy(sc.timeBased ? buildS3Why(timeEval) : sc.why));
+    p.detail.hidden = false;
+    setPill(sc, pass ? "pass" : "fail", pass ? "PASS" : "FAIL");
+    return pass;
+  } catch (e) {
+    p.detail.innerHTML = "";
+    const err = section("Error");
+    err.appendChild(el("p", "why", "Could not run this scenario: " + e.message));
+    p.detail.appendChild(err);
+    p.detail.hidden = false;
+    setPill(sc, "error", "error");
+    return false;
+  } finally {
+    p.play.disabled = false;
+  }
+}
+
+function setTally(text) {
+  document.getElementById("tally").textContent = text;
+}
+
+async function playAll() {
+  const btn = document.getElementById("playAll");
+  btn.disabled = true;
+  let passed = 0;
+  for (let i = 0; i < SCENARIOS.length; i++) {
+    setTally("Running " + (i + 1) + " of " + SCENARIOS.length + "...");
+    const ok = await playScenario(SCENARIOS[i]);
+    if (ok) passed++;
+  }
+  const cls = passed === SCENARIOS.length ? "ok" : "bad";
+  const tally = document.getElementById("tally");
+  tally.innerHTML = "";
+  const span = el("span", cls, passed + "/" + SCENARIOS.length + " passed");
+  tally.appendChild(span);
+  tally.appendChild(document.createTextNode(" · each panel stays replayable."));
+  btn.disabled = false;
+}
+
+function init() {
+  const host = document.getElementById("scenarios");
+  SCENARIOS.forEach(function (sc) { host.appendChild(buildPanel(sc)); });
+
+  if (!SEED.seeded) {
+    document.getElementById("seedNotice").hidden = false;
+    document.getElementById("playAll").disabled = true;
+    Object.keys(panels).forEach(function (id) {
+      panels[id].play.disabled = true;
+      setPill(SCENARIOS.find(function (s) { return s.id === id; }), "idle", "seed missing");
+    });
+    setTally("Seed missing. Run python -m scripts.seed, then reload.");
+    return;
+  }
+  document.getElementById("playAll").addEventListener("click", playAll);
+}
+
+window.addEventListener("DOMContentLoaded", init);
+</script>
+</body>
+</html>
