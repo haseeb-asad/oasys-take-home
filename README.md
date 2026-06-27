@@ -9,6 +9,15 @@ The scope is intentionally narrow. The care-team model is the center of the
 submission; scheduling, billing, documents, wearables, email delivery, and a full
 onboarding workflow are not built.
 
+**Live demo:** after `./setup.sh`, open `http://127.0.0.1:8000/demo` to watch the
+named access scenarios replay live against the running API. Each step shows the
+decoded token, the request, the response, and the authorization reasoning.
+
+**Design docs:** the full rationale ships in `planning/`: the data model and ERD
+(`data-model.md`), the care-team design (`care-team-design.md`), the authorization
+design (`auth-authz-design.md`), the decision log (`decision-log.md`), and the
+per-scenario answers to the prompt (`scenario-answers.md`).
+
 ## Quick Start
 
 Prerequisites:
@@ -25,7 +34,7 @@ One command handles local setup:
 The script does all of this:
 
 - starts Postgres with Docker Compose
-- installs Python dependencies, preferring `uv` and falling back to `.venv`
+- installs Python dependencies, preferring `uv` (from the committed `uv.lock`) and falling back to a `.venv` with the lock-derived `requirements.txt`
 - creates `.env` from `.env.example` if needed
 - runs `alembic upgrade head`
 - runs the idempotent seed script
@@ -44,6 +53,7 @@ If setup used the `.venv` fallback:
 
 Then open:
 
+- Live scenario demo: http://127.0.0.1:8000/demo
 - API docs: http://127.0.0.1:8000/docs
 - Health check: http://127.0.0.1:8000/health
 
@@ -68,6 +78,7 @@ The seed also creates:
 - Sara's `shoulder_rehab` episode managed by Khan Solo Practice, with Khan responsible and as the booking face
 - Patel as physician on `shoulder_rehab`
 - Lee as temporary coverage on `shoulder_rehab`
+- Sara's `prior_rehab` episode managed by Khan Solo Practice, with Khan responsible, opened then closed (a discharged episode the closed-episode scenario reads and is blocked from writing)
 
 Re-run the seed at any time:
 
@@ -77,33 +88,18 @@ uv run python -m scripts.seed
 
 It is idempotent. It creates missing rows and leaves existing seeded rows alone.
 
-To print the deterministic seed IDs:
-
-```bash
-uv run python - <<'PY'
-import dataclasses
-
-from app.core.database import get_sessionmaker
-from scripts.seed import seed
-
-with get_sessionmaker()() as session:
-    world = seed(session)
-    session.commit()
-    for key, value in dataclasses.asdict(world).items():
-        print(f"{key}: {value}")
-PY
-```
-
-Use `./.venv/bin/python` instead of `uv run python` if you are not using `uv`.
+The seed ids are deterministic (`uuid5` over stable slugs) and the `/demo` page
+surfaces them, so you rarely need to look them up by hand.
 
 ## API Demo
 
-The easiest manual path is to use Swagger at `/docs`.
+The `/demo` page replays the named scenarios for you. To explore the API by hand,
+use Swagger at `/docs`:
 
 1. Call `POST /v1/auth/token`.
 2. Use a seeded email as `username` and `seed-not-a-secret` as `password`.
 3. Click `Authorize` in Swagger and paste the bearer token.
-4. Use the seeded IDs printed by the command above for episode and person IDs.
+4. Use the seeded IDs (surfaced by the `/demo` page) for episode and person IDs.
 
 Important route rule:
 
@@ -138,7 +134,7 @@ Core endpoints:
 
 ## Tests As Demonstration
 
-The tests are the best executable tour of the system. The suite is 601 tests, and
+The tests are the best executable tour of the system. The suite is 608 tests, and
 `ruff`, `mypy --strict`, and `pytest` run in CI on every pull request.
 
 Run the full suite after `./setup.sh`:
@@ -157,6 +153,7 @@ Useful focused suites:
 
 ```bash
 uv run pytest tests/test_care_api.py -q -rs
+uv run pytest tests/test_scenarios.py -q -rs
 uv run pytest app/care/tests/test_episode.py -q
 uv run pytest app/authz/tests/test_policy.py -q
 uv run pytest tests/test_seed.py -q -rs
@@ -166,6 +163,7 @@ uv run pytest tests/test_backfill_episodes.py -q -rs
 What these prove:
 
 - `tests/test_care_api.py` exercises the real FastAPI app, real auth, real PDP gates, and real Postgres persistence for the care-team scenarios.
+- `tests/test_scenarios.py` replays the seven named access scenarios end to end through `/v1` (the same recipes the `/demo` page shows in the browser).
 - `app/care/tests/test_episode.py` proves the `Episode` aggregate invariants without infrastructure.
 - `app/authz/tests/test_policy.py` proves actor-surface-scoped authorization, see-vs-act capabilities, coverage expiry, closed episode behavior, and cross-org denial.
 - `tests/test_seed.py` proves the Sara world seed is deterministic and idempotent.
@@ -222,11 +220,6 @@ The aggregate protects these invariants:
 
 Postgres reinforces the one-at-a-time rules with `EXCLUDE USING gist` constraints
 on responsibility and booking-face periods.
-
-The full design rationale ships in `planning/`: the data model and ERD
-(`data-model.md`), the care-team design (`care-team-design.md`), the authorization
-design (`auth-authz-design.md`), the locked decision log (`decision-log.md`), and
-the per-scenario answers to the prompt (`scenario-answers.md`).
 
 ## Access Model
 
