@@ -45,17 +45,16 @@ Start the API after setup:
 uv run uvicorn app.main:app --reload
 ```
 
-If setup used the `.venv` fallback:
-
-```bash
-./.venv/bin/uvicorn app.main:app --reload
-```
-
 Then open:
 
 - Live scenario demo: http://127.0.0.1:8000/demo
 - API docs: http://127.0.0.1:8000/docs
 - Health check: http://127.0.0.1:8000/health
+
+> Commands in this README use `uv run`. If you do not have uv, install it
+> (`brew install uv`) or run the same tool through the `.venv` that `setup.sh`
+> creates as a fallback, for example `./.venv/bin/pytest` or
+> `./.venv/bin/uvicorn app.main:app --reload`.
 
 ## Seed Data
 
@@ -141,12 +140,6 @@ Run the full suite after `./setup.sh`:
 
 ```bash
 uv run pytest
-```
-
-If you are using the `.venv` fallback:
-
-```bash
-./.venv/bin/python -m pytest
 ```
 
 Useful focused suites:
