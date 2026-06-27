@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Kinetic care-team access demo</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-2: #243044;
+    --ink: #e2e8f0;
+    --muted: #94a3b8;
+    --line: #334155;
+    --pass: #22c55e;
+    --fail: #ef4444;
+    --accent: #38bdf8;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    padding: 28px 20px 60px;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 18px; }
+  .bar {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 16px; margin-bottom: 18px;
+  }
+  .summary { font-size: 18px; font-weight: 600; }
+  .summary .ok { color: var(--pass); }
+  .summary .bad { color: var(--fail); }
+  button {
+    background: var(--accent); color: #042027; border: 0; border-radius: 8px;
+    padding: 8px 14px; font-weight: 600; cursor: pointer; font-size: 14px;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .notice {
+    background: #422006; border: 1px solid #b45309; color: #fde68a;
+    border-radius: 10px; padding: 14px 16px; margin-bottom: 18px;
+  }
+  .notice code { font-family: var(--mono); background: rgba(0,0,0,0.3); padding: 1px 6px; border-radius: 5px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-left-width: 5px;
+    border-radius: 10px; padding: 14px 16px; margin-bottom: 14px;
+  }
+  .card.pass { border-left-color: var(--pass); }
+  .card.fail { border-left-color: var(--fail); }
+  .card.pending { border-left-color: var(--line); }
+  .card-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .card-title { font-weight: 600; font-size: 16px; }
+  .tag {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 1px 8px;
+  }
+  .badge {
+    margin-left: auto; font-weight: 700; font-size: 12px; letter-spacing: 0.06em;
+    border-radius: 999px; padding: 3px 12px;
+  }
+  .badge.pass { background: rgba(34,197,94,0.18); color: var(--pass); }
+  .badge.fail { background: rgba(239,68,68,0.18); color: var(--fail); }
+  .badge.pending { background: rgba(148,163,184,0.18); color: var(--muted); }
+  .meta { color: var(--muted); margin: 8px 0 0; font-size: 13.5px; }
+  .req { font-family: var(--mono); font-size: 13px; color: var(--ink); }
+  .req .method {
+    font-weight: 700; color: var(--accent); margin-right: 6px;
+  }
+  .statuses { margin-top: 8px; font-size: 13.5px; }
+  .statuses b { font-family: var(--mono); }
+  .statuses .ok { color: var(--pass); }
+  .statuses .bad { color: var(--fail); }
+  .note { color: var(--muted); font-size: 13px; margin-top: 8px; font-style: italic; }
+  details { margin-top: 10px; }
+  summary { cursor: pointer; color: var(--accent); font-size: 13px; }
+  pre {
+    background: #0b1220; border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 12px; overflow: auto; font-family: var(--mono); font-size: 12.5px;
+    margin: 8px 0 0; max-height: 320px;
+  }
+  .team { margin-top: 10px; background: var(--panel-2); border-radius: 8px; padding: 10px 12px; }
+  .team h4 { margin: 0 0 6px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .team ul { margin: 0 0 8px; padding-left: 18px; }
+  .team li { font-size: 13.5px; }
+  .team .cur { color: var(--accent); font-weight: 600; }
+  footer { color: var(--muted); font-size: 13px; margin-top: 24px; border-top: 1px solid var(--line); padding-top: 14px; }
+  footer code { font-family: var(--mono); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Kinetic care-team access demo</h1>
+  <p class="sub">
+    Live replay of the named access scenarios against this server's same-origin
+    <code>/v1</code> API. Every step is a real authenticated request; the page is
+    read-only (reads plus denied writes), so it never mutates the seeded world.
+  </p>
+
+  <div id="seedNotice" class="notice" hidden>
+    <strong>Seed not found.</strong>
+    This page drives the committed "Sara world", but its core entities are not in
+    the database yet. Run <code>python -m scripts.seed</code> (or <code>./setup.sh</code>)
+    against the live database, then reload this page.
+  </div>
+
+  <div class="bar">
+    <div id="summary" class="summary">Ready.</div>
+    <button id="runBtn" type="button">Run scenarios</button>
+  </div>
+
+  <div id="cards"></div>
+
+  <footer>
+    <strong>Not live-demoable here:</strong>
+    S3 (coverage window expires by wall-clock time) and S4 (a closed episode)
+    depend on the server's clock and on closed-episode state that the running
+    seed does not provide, so they cannot be proven by a read-only page without
+    mutating or time-travelling the seed. They are asserted directly in
+    <code>tests/test_scenarios.py</code>.
+  </footer>
+</div>
+
+<script>
+"use strict";
+
+// The seed ids + password are injected server-side; the placeholder below is
+// replaced with json.dumps(seed) by app/demo/router.py.
+const SEED = __SEED_JSON__;
+
+// The seed world's fixed login emails (stable business keys, mirror scripts/seed.py).
+const ACTOR_EMAIL = {
+  khan: "khan@example.com",
+  patel: "patel@example.com",
+  mike: "mike@example.com",
+  olivia: "admin@example.com",
+};
+
+// Friendly labels for actors and for resolving provider ids inside a team roster.
+const ACTOR_LABEL = {
+  sara: "Sara (client)",
+  mike: "Mike (personal trainer)",
+  khan: "Dr Khan (physiotherapist, responsible)",
+  patel: "Dr Patel (physician)",
+  lee: "Dr Lee (physiotherapist, coverage)",
+  olivia: "Olivia (FitGym org staff)",
+};
+
+const ID_TO_NAME = {};
+Object.keys(ACTOR_LABEL).forEach(function (handle) {
+  if (SEED[handle]) ID_TO_NAME[SEED[handle]] = ACTOR_LABEL[handle];
+});
+function nameFor(id) {
+  return ID_TO_NAME[id] || id;
+}
+
+// The non-mutating live steps, mirroring tests/test_scenarios.py expectations.
+function buildSteps() {
+  const s = SEED.shoulder;
+  const g = SEED.general;
+  const addMike = { provider_id: SEED.mike, role: "physician", change_reason: "demo" };
+  return [
+    {
+      title: "Khan reads the Shoulder episode",
+      tag: "S1 / S7",
+      actor: "khan",
+      method: "GET",
+      path: "/v1/episodes/" + s + "?acting_as=provider",
+      expected: 200,
+      note: "Responsible provider reads the multi-role team plus its append-only history.",
+      renderTeam: true,
+    },
+    {
+      title: "Patel reads the Shoulder clinical records",
+      tag: "S5",
+      actor: "patel",
+      method: "GET",
+      path: "/v1/episodes/" + s + "/clinical-records",
+      expected: 200,
+      note: "Physician member: membership plus a clinical-granting role allows the read.",
+    },
+    {
+      title: "Mike is denied the Shoulder clinical records",
+      tag: "S6",
+      actor: "mike",
+      method: "GET",
+      path: "/v1/episodes/" + s + "/clinical-records",
+      expected: 403,
+      note: "Mike staffs the General episode only; the episode-boundary deny is 403.",
+    },
+    {
+      title: "Patel cannot add a member (member, not responsible)",
+      tag: "S1 deny",
+      actor: "patel",
+      method: "POST",
+      path: "/v1/episodes/" + s + "/members?acting_as=provider",
+      body: addMike,
+      expected: 403,
+      note: "Membership alone never grants MANAGE_TEAM; a failed POST mutates nothing.",
+    },
+    {
+      title: "Olivia cannot add a member across orgs",
+      tag: "S6 deny",
+      actor: "olivia",
+      method: "POST",
+      path: "/v1/episodes/" + s + "/members?acting_as=org_staff",
+      body: addMike,
+      expected: 403,
+      note: "FitGym admin has no authority over a Khan-Solo episode; failed POST, no mutation.",
+    },
+    {
+      title: "Olivia reads her own managing-org episode",
+      tag: "S6 positive",
+      actor: "olivia",
+      method: "GET",
+      path: "/v1/episodes/" + g + "?acting_as=org_staff",
+      expected: 200,
+      note: "Org-staff authority is scoped to managing_org_id; the General episode is FitGym's.",
+    },
+    {
+      title: "Olivia is denied a foreign-org episode read",
+      tag: "S6",
+      actor: "olivia",
+      method: "GET",
+      path: "/v1/episodes/" + s + "?acting_as=org_staff",
+      expected: 403,
+      note: "The same authority does not reach the Khan-Solo-managed Shoulder episode.",
+    },
+  ];
+}
+
+const tokens = {};
+
+async function login(handle) {
+  const body = new URLSearchParams();
+  body.set("username", ACTOR_EMAIL[handle]);
+  body.set("password", SEED.password);
+  const resp = await fetch("/v1/auth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+  if (!resp.ok) {
+    throw new Error("login failed for " + handle + " (" + resp.status + ")");
+  }
+  const data = await resp.json();
+  tokens[handle] = data.access_token;
+}
+
+async function runStep(step) {
+  const opts = { method: step.method, headers: {} };
+  const token = tokens[step.actor];
+  if (token) opts.headers["Authorization"] = "Bearer " + token;
+  if (step.body) {
+    opts.headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(step.body);
+  }
+  const resp = await fetch(step.path, opts);
+  let data = null;
+  try {
+    data = await resp.json();
+  } catch (e) {
+    data = null;
+  }
+  return { status: resp.status, data: data };
+}
+
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function renderTeam(data) {
+  const box = el("div", "team");
+  const members = el("div");
+  const h1 = el("h4", null, "Members");
+  box.appendChild(h1);
+  const ul = el("ul");
+  (data.members || []).forEach(function (m) {
+    const li = el("li");
+    const open = m.effective_to === null ? "open" : "until " + m.effective_to;
+    li.textContent = nameFor(m.provider_id) + " - " + m.role + " (" + open + ")";
+    ul.appendChild(li);
+  });
+  box.appendChild(ul);
+
+  const h2 = el("h4", null, "Current responsible / face");
+  box.appendChild(h2);
+  const cur = el("ul");
+  const r = el("li");
+  r.innerHTML = "Responsible: <span class=\"cur\">" + nameFor(data.responsible_provider_id) + "</span>";
+  cur.appendChild(r);
+  const f = el("li");
+  f.innerHTML = "Booking face: <span class=\"cur\">" + nameFor(data.face_provider_id) + "</span>";
+  cur.appendChild(f);
+  box.appendChild(cur);
+  return box;
+}
+
+function renderCard(step, result) {
+  const pass = result.status === step.expected;
+  const card = el("div", "card " + (pass ? "pass" : "fail"));
+
+  const head = el("div", "card-head");
+  head.appendChild(el("span", "card-title", step.title));
+  head.appendChild(el("span", "tag", step.tag));
+  head.appendChild(el("span", "badge " + (pass ? "pass" : "fail"), pass ? "PASS" : "FAIL"));
+  card.appendChild(head);
+
+  const meta = el("p", "meta", "Actor: " + (ACTOR_LABEL[step.actor] || step.actor));
+  card.appendChild(meta);
+
+  const req = el("p", "req");
+  req.appendChild(el("span", "method", step.method));
+  req.appendChild(document.createTextNode(step.path));
+  card.appendChild(req);
+
+  const st = el("p", "statuses");
+  st.innerHTML =
+    "expected <b>" + step.expected + "</b> &middot; actual " +
+    "<b class=\"" + (pass ? "ok" : "bad") + "\">" + result.status + "</b>";
+  card.appendChild(st);
+
+  if (step.note) card.appendChild(el("p", "note", step.note));
+
+  if (step.renderTeam && result.data && result.data.members) {
+    card.appendChild(renderTeam(result.data));
+  }
+
+  const details = el("details");
+  details.appendChild(el("summary", null, "Response JSON"));
+  const pre = el("pre");
+  pre.textContent = result.data === null ? "(no JSON body)" : JSON.stringify(result.data, null, 2);
+  details.appendChild(pre);
+  card.appendChild(details);
+
+  return card;
+}
+
+function setSummary(passed, total, extra) {
+  const node = document.getElementById("summary");
+  const cls = passed === total ? "ok" : "bad";
+  node.innerHTML =
+    "<span class=\"" + cls + "\">" + passed + "/" + total + " passed</span>" +
+    (extra ? " &middot; " + extra : "");
+}
+
+async function run() {
+  const runBtn = document.getElementById("runBtn");
+  const cards = document.getElementById("cards");
+  cards.innerHTML = "";
+  runBtn.disabled = true;
+
+  try {
+    setSummary(0, buildSteps().length, "logging in...");
+    await Promise.all(Object.keys(ACTOR_EMAIL).map(login));
+
+    const steps = buildSteps();
+    let passed = 0;
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
+      const result = await runStep(step);
+      if (result.status === step.expected) passed++;
+      cards.appendChild(renderCard(step, result));
+      setSummary(passed, steps.length, "running...");
+    }
+    setSummary(passed, steps.length, "");
+  } catch (e) {
+    const banner = el("div", "notice");
+    banner.textContent = "Could not run the scenarios: " + e.message;
+    cards.appendChild(banner);
+    document.getElementById("summary").textContent = "Error.";
+  } finally {
+    runBtn.disabled = false;
+  }
+}
+
+function init() {
+  const runBtn = document.getElementById("runBtn");
+  if (!SEED.seeded) {
+    document.getElementById("seedNotice").hidden = false;
+    runBtn.disabled = true;
+    document.getElementById("summary").textContent = "Seed missing.";
+    return;
+  }
+  runBtn.addEventListener("click", run);
+  run();
+}
+
+window.addEventListener("DOMContentLoaded", init);
+</script>
+</body>
+</html>
