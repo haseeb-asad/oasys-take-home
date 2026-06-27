@@ -40,7 +40,7 @@ from app.identity.service import has_active_profile
 from app.organization.orm import OrganizationModel, OrgStaffMembershipModel
 from app.organization.repository import SqlAlchemyOrgStaffMembershipRepository
 from app.organization.service import has_active_admin_membership
-from scripts.seed import SEED_EPOCH, SaraWorld, seed
+from scripts.seed import SEED_EPOCH, SaraWorld, _seed_id, seed
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _EIGHT_WEEKS = timedelta(weeks=8)
@@ -314,6 +314,34 @@ def test_seed_idempotent_returns_same_ids(db_session: Session) -> None:
     second = seed(db_session)
     assert isinstance(first, SaraWorld)
     assert first == second
+
+
+def test_seed_idempotent_across_different_now(db_session: Session) -> None:
+    world = seed(db_session)
+    before = _snapshot_counts(db_session)
+    # A re-run with an EARLIER now must still converge and not raise. The admin gate
+    # is by deterministic id (not has_active_admin_membership(now)), so it cannot
+    # miss the future-dated row and collide on the primary key.
+    seed(db_session, now=SEED_EPOCH - timedelta(weeks=52))
+    after = _snapshot_counts(db_session)
+    assert before == after
+    admin_row = db_session.scalars(
+        select(OrgStaffMembershipModel).where(OrgStaffMembershipModel.org_id == world.fitgym)
+    ).one()
+    # The first run's effective dates stand; the later run does not rewrite them.
+    assert admin_row.effective_from == SEED_EPOCH
+
+
+def test_top_level_ids_are_deterministic(db_session: Session) -> None:
+    world = seed(db_session)
+    # The ids the seed assigns are uuid5 over canonical slugs (stable across runs and
+    # machines). The care aggregate's child-row ids are domain-assigned uuid4 and are
+    # intentionally not asserted (the seed adds no domain logic).
+    assert world.sara == _seed_id("identity:sara@example.com")
+    assert world.fitgym == _seed_id("org:fitgym")
+    assert world.khan_solo == _seed_id("org:khan_solo")
+    assert world.general == _seed_id("episode:general_training")
+    assert world.shoulder == _seed_id("episode:shoulder_rehab")
 
 
 def test_seed_does_not_commit(db_session: Session, monkeypatch: pytest.MonkeyPatch) -> None:

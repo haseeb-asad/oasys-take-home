@@ -14,14 +14,13 @@ threaded into every service call. The seed path itself never calls
 child-row id default inside ``Episode.open`` / ``add_member``, which is never
 re-reached once an episode exists).
 
-Idempotency. ``seed()`` is convergent and never raises on a re-run: each entity is
-gated before it is created (identity by email; profile by ``has_active_profile``;
-org by its uuid5 id via ``get_by_id``; admin membership by
-``has_active_admin_membership``; episode by its uuid5 id via ``get_episode``;
-episode member by provider-id over ALL memberships, so the future-dated coverage
-row is deduped too). Because the gates short-circuit on existing entities,
-re-running with a DIFFERENT ``now`` does NOT rewrite an already-seeded window: the
-first run's effective dates stand.
+Idempotency. ``seed()`` is convergent and never raises on a re-run, for ANY
+``now``: each entity is gated before it is created (identity by email; profile by
+``has_active_profile``; org by its uuid5 id via ``get_by_id``; admin membership by
+its deterministic id; episode by its uuid5 id via ``get_episode``; episode member
+by provider-id over ALL memberships, so the future-dated coverage row is deduped
+too). Every gate is ``now``-independent, so re-running with a DIFFERENT ``now``
+does NOT rewrite an already-seeded window: the first run's effective dates stand.
 
 Transactions. ``seed()`` does NOT commit - it composes inside the caller's unit of
 work (and the savepoint-joined test harness). ``main()`` is the ONLY place that
@@ -52,14 +51,14 @@ from app.organization.repository import (
     SqlAlchemyOrganizationRepository,
     SqlAlchemyOrgStaffMembershipRepository,
 )
-from app.organization.service import (
-    add_staff_membership,
-    create_organization,
-    has_active_admin_membership,
-)
+from app.organization.service import add_staff_membership, create_organization
 
-# Deterministic defaults (A16): a fixed clock and a fixed uuid5 namespace, so every
-# run produces byte-identical ids/timestamps regardless of wall-clock or machine.
+# Deterministic defaults (A16): a fixed clock and a fixed uuid5 namespace, so the
+# ids the seed assigns (identities, profiles, orgs, memberships, episodes) and all
+# timestamps are byte-identical across runs and machines. The care aggregate's own
+# child rows (membership/responsibility/face) keep their domain-assigned uuid4 ids,
+# which are NOT stable across fresh databases; that is by design (the seed adds no
+# domain logic) and affects neither idempotency nor the seeded world's shape.
 SEED_EPOCH: datetime = datetime(2026, 1, 1, tzinfo=UTC)
 _SEED_NS: UUID = UUID("5eed5eed-5eed-5eed-5eed-5eed5eed5eed")
 
@@ -184,12 +183,18 @@ def _ensure_admin_membership(
     org_id: UUID,
     now: datetime,
 ) -> None:
-    """Grant an open-ended ADMIN membership from ``now`` if none is active.
+    """Grant an open-ended ADMIN membership from ``now`` if not already seeded.
 
-    Gate: ``has_active_admin_membership`` (the table has NO unique constraint, so
-    the gate is load-bearing against duplicate admin rows on a re-run).
+    Gate: the deterministic membership id over ALL rows for the pair (``list_for``
+    applies no time filter), exactly like the org/episode gates. A time-based gate
+    (``has_active_admin_membership(now)``) would be WRONG here: a re-run with a
+    ``now`` BEFORE the seeded ``effective_from`` would not see the row as active,
+    retry the insert with the same deterministic id, and collide on the primary
+    key. Gating by id is ``now``-independent, so the seed converges and never raises
+    for any ``now``; the table's lack of a unique constraint makes it load-bearing.
     """
-    if has_active_admin_membership(repo, identity_id, org_id, now):
+    membership_id = _seed_id(f"membership:{identity_id}:{org_id}:admin")
+    if any(membership.id == membership_id for membership in repo.list_for(identity_id, org_id)):
         return
     add_staff_membership(
         repo,
@@ -197,7 +202,7 @@ def _ensure_admin_membership(
         org_id=org_id,
         role=OrgRole.ADMIN,
         effective_from=now,
-        new_id=_seed_id(f"membership:{identity_id}:{org_id}:admin"),
+        new_id=membership_id,
     )
 
 
