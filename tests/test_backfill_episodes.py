@@ -465,6 +465,32 @@ def test_revert_deletes_backfilled_but_preserves_preexisting(
     assert null_pointer is None
 
 
+def test_revert_deletes_clinical_children_of_backfilled_episode(
+    db_session: Session, alembic_cfg: Config
+) -> None:
+    # A backfilled episode can accrue clinical_records / rehab_assessments (0006,
+    # non-cascading FK -> episodes) AFTER the backfill. The revert must delete those
+    # children too, else DELETE FROM episodes hits the FK. Regression: the 0006
+    # episode children must be in the revert, not just the 0005 care rows.
+    parents = _make_parents(db_session)
+    conn = db_session.connection()
+    _insert_legacy_pairing(conn, client=parents.client, provider=parents.provider, org=parents.org)
+    (episode_id,) = _backfill_fn(alembic_cfg)(conn)
+    for table in ("clinical_records", "rehab_assessments"):
+        conn.execute(
+            sa.text(
+                f"INSERT INTO {table} (id, episode_id, author_provider_id, body, created_at) "
+                "VALUES (gen_random_uuid(), :episode_id, :author, 'note', :ts)"
+            ),
+            {"episode_id": episode_id, "author": parents.provider, "ts": _CREATED_AT},
+        )
+    # Must NOT raise (children deleted before the parent) and must remove them.
+    _revert_fn(alembic_cfg)(conn)
+    assert _count(conn, "episodes", "id", episode_id) == 0
+    assert _count(conn, "clinical_records", "episode_id", episode_id) == 0
+    assert _count(conn, "rehab_assessments", "episode_id", episode_id) == 0
+
+
 # --- legacy-table constraint behaviour (edges + defaults) -------------------- #
 
 
@@ -586,6 +612,9 @@ def test_0008_downgrade_offline_emits_deletes_before_drop(
     command.downgrade(alembic_cfg, "0008:0007", sql=True)
     out = capsys.readouterr().out
     assert "DELETE FROM episodes" in out
+    # Every episode-scoped child delete is rendered too (0005 care + 0006 clinical).
+    assert "DELETE FROM clinical_records" in out
+    assert "DELETE FROM rehab_assessments" in out
     assert "DROP TABLE legacy_provider_links" in out
     # Children-and-parent deletes are emitted BEFORE the table is dropped (so the
     # ``migrated_episode_id`` subquery is still resolvable).

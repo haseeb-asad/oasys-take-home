@@ -27,23 +27,32 @@ carry explicit literal names matching the 0005 style.
 
 The backfill is a factored, frozen-table function
 ``backfill_episodes_from_legacy(connection)`` (imports no app ORM/domain, so it is
-drift-proof and matches 0005's no-ORM posture). ``upgrade()`` always runs the
-offline-renderable ``create_table`` then calls the backfill ONLY when not in
-offline (``--sql``) mode, because a Python-loop data migration cannot render to
-static SQL. At ``command.upgrade(head)`` time the legacy table is empty, so that
-call is a structural no-op; the backfill is proven by direct invocation in tests.
-It is idempotent (it selects only rows whose ``migrated_episode_id IS NULL`` and
-writes the new episode id back).
+drift-proof and matches 0005's no-ORM posture). It is EXACTLY what ``upgrade()``
+invokes, so the function's tests are the migration's data-step tests. ``upgrade()``
+always runs the offline-renderable ``create_table`` then runs the backfill over
+whatever rows are STAGED in ``legacy_provider_links``, but ONLY when not in offline
+(``--sql``) mode (a Python-loop data migration cannot render to static SQL).
+
+Operational model: in a real expand/contract the legacy export is loaded into this
+staging table (by a prior step or within the same migration window) and
+``upgrade()`` projects it into episodes. The backfill is idempotent (it selects
+only rows whose ``migrated_episode_id IS NULL`` and writes the new episode id
+back), so loading more rows and re-running converges. On a GREENFIELD upgrade the
+staging table is created empty, so the in-``upgrade`` call is a structural no-op:
+the projection is proven by direct invocation in the tests, NOT by
+``alembic upgrade head`` (which has nothing staged to migrate).
 
 ``downgrade()`` is offline-safe: the data revert is a fixed sequence of single
 ``op.execute`` DELETE statements (each renderable under ``--sql``), then
 ``drop_table`` LAST so the ``migrated_episode_id`` subquery is still resolvable.
-The revert deletes every backfilled episode AND ALL of its children keyed by
-``episode_id`` (so any child later added to a backfilled episode is removed too);
-it touches no episode whose id is not pointed at by a migrated legacy row, so a
-pre-existing (non-backfilled) episode is never deleted. The same SQL constants
-back ``revert_backfilled_episodes(connection)`` so a DB test can exercise the
-revert directly.
+The revert deletes every backfilled episode AND ALL of its episode-scoped children
+keyed by ``episode_id`` (the 0005 care rows membership/responsibility/booking AND
+the 0006 ``clinical_records``/``rehab_assessments``, so the non-cascading FKs never
+block the parent DELETE and any child later added to a backfilled episode is
+removed too); it touches no episode whose id is not pointed at by a migrated legacy
+row, so a pre-existing (non-backfilled) episode is never deleted. The same SQL
+constants back ``revert_backfilled_episodes(connection)`` so a DB test can exercise
+the revert directly.
 """
 
 from __future__ import annotations
@@ -120,9 +129,14 @@ _booking = sa.table(
 )
 
 # The data revert, as single static SQL statements (offline-renderable). Keyed on
-# the backfill's ``migrated_episode_id`` pointer, children before the parent, so a
-# pre-existing (non-backfilled) episode - whose id is never a ``migrated_episode_id``
-# - is never deleted. Shared by downgrade() and revert_backfilled_episodes().
+# the backfill's ``migrated_episode_id`` pointer: EVERY episode-scoped child is
+# deleted before the parent ``episodes`` row, so the non-cascading FKs never block
+# the DELETE. That means the 0005 effective-dated care rows (membership /
+# responsibility / booking) AND the 0006 clinical rows (``clinical_records`` /
+# ``rehab_assessments``), since a backfilled episode can accrue clinical/rehab rows
+# after the backfill. A non-backfilled episode (its id is never a
+# ``migrated_episode_id``) is never touched. Shared by downgrade() and
+# revert_backfilled_episodes().
 _MIGRATED = (
     "SELECT migrated_episode_id FROM legacy_provider_links WHERE migrated_episode_id IS NOT NULL"
 )
@@ -130,6 +144,8 @@ _REVERT_STATEMENTS: tuple[str, ...] = (
     f"DELETE FROM episode_memberships WHERE episode_id IN ({_MIGRATED})",
     f"DELETE FROM responsibility_assignments WHERE episode_id IN ({_MIGRATED})",
     f"DELETE FROM booking_contacts WHERE episode_id IN ({_MIGRATED})",
+    f"DELETE FROM clinical_records WHERE episode_id IN ({_MIGRATED})",
+    f"DELETE FROM rehab_assessments WHERE episode_id IN ({_MIGRATED})",
     f"DELETE FROM episodes WHERE id IN ({_MIGRATED})",
 )
 
