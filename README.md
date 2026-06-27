@@ -23,7 +23,7 @@ per-scenario answers to the prompt (`scenario-answers.md`).
 Prerequisites:
 
 - Docker Desktop or Docker Engine
-- Python 3.14, or `uv` with Python installation support
+- Python 3.14
 
 One command handles local setup:
 
@@ -34,7 +34,7 @@ One command handles local setup:
 The script does all of this:
 
 - starts Postgres with Docker Compose
-- installs Python dependencies, preferring `uv` (from the committed `uv.lock`) and falling back to a `.venv` with the lock-derived `requirements.txt`
+- creates a `.venv` and installs Python dependencies with `pip install -r requirements.txt`
 - creates `.env` from `.env.example` if needed
 - runs `alembic upgrade head`
 - runs the idempotent seed script
@@ -42,7 +42,7 @@ The script does all of this:
 Start the API after setup:
 
 ```bash
-uv run uvicorn app.main:app --reload
+./.venv/bin/uvicorn app.main:app --reload
 ```
 
 Then open:
@@ -50,11 +50,6 @@ Then open:
 - Live scenario demo: http://127.0.0.1:8000/demo
 - API docs: http://127.0.0.1:8000/docs
 - Health check: http://127.0.0.1:8000/health
-
-> Commands in this README use `uv run`. If you do not have uv, install it
-> (`brew install uv`) or run the same tool through the `.venv` that `setup.sh`
-> creates as a fallback, for example `./.venv/bin/pytest` or
-> `./.venv/bin/uvicorn app.main:app --reload`.
 
 ## Seed Data
 
@@ -82,7 +77,7 @@ The seed also creates:
 Re-run the seed at any time:
 
 ```bash
-uv run python -m scripts.seed
+./.venv/bin/python -m scripts.seed
 ```
 
 It is idempotent. It creates missing rows and leaves existing seeded rows alone.
@@ -139,18 +134,18 @@ The tests are the best executable tour of the system. The suite is 608 tests, an
 Run the full suite after `./setup.sh`:
 
 ```bash
-uv run pytest
+./.venv/bin/pytest
 ```
 
 Useful focused suites:
 
 ```bash
-uv run pytest tests/test_care_api.py -q -rs
-uv run pytest tests/test_scenarios.py -q -rs
-uv run pytest app/care/tests/test_episode.py -q
-uv run pytest app/authz/tests/test_policy.py -q
-uv run pytest tests/test_seed.py -q -rs
-uv run pytest tests/test_backfill_episodes.py -q -rs
+./.venv/bin/pytest tests/test_care_api.py -q -rs
+./.venv/bin/pytest tests/test_scenarios.py -q -rs
+./.venv/bin/pytest app/care/tests/test_episode.py -q
+./.venv/bin/pytest app/authz/tests/test_policy.py -q
+./.venv/bin/pytest tests/test_seed.py -q -rs
+./.venv/bin/pytest tests/test_backfill_episodes.py -q -rs
 ```
 
 What these prove:
@@ -169,9 +164,9 @@ Postgres-backed proof locally.
 Quality checks:
 
 ```bash
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy
+./.venv/bin/ruff check .
+./.venv/bin/ruff format --check .
+./.venv/bin/mypy
 ```
 
 ## Architecture
