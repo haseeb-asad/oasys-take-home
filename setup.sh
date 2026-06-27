@@ -77,12 +77,12 @@ else
   ./.venv/bin/alembic upgrade head
 fi
 
-# --- 7. seed (idempotent; app/seed.py is a no-op placeholder for now) ---
-log "Seeding the database (python -m app.seed)…"
+# --- 7. seed (idempotent; builds the Sara world via the application services) ---
+log "Seeding the database (python -m scripts.seed)…"
 if [ "$RUN_PREFIX" = "uv run" ]; then
-  uv run python -m app.seed
+  uv run python -m scripts.seed
 else
-  ./.venv/bin/python -m app.seed
+  ./.venv/bin/python -m scripts.seed
 fi
 
 log "Setup complete. Postgres is running, deps installed, database seeded."
