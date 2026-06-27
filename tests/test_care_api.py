@@ -426,6 +426,23 @@ def test_org_admin_adds_member_201_path_a(
     assert resp.status_code == 201
 
 
+def test_non_authorized_member_cannot_manage_team_returns_403(
+    client: TestClient, db_session: Session, clock: datetime, mint_token: Callable[..., str]
+) -> None:
+    world = _world(db_session, clock)
+    # The personal trainer is a CURRENT member of general but is NEITHER the responsible
+    # provider NOR an org_admin, and the personal_trainer role grid lacks MANAGE_TEAM, so
+    # acting_as=provider cannot add a member (the PDP denies MANAGE_TEAM): the only
+    # difference from the 201 add-member path is the actor's authority.
+    resp = client.post(
+        f"{_EPISODES}/{world.general}/members",
+        headers=_auth(mint_token(str(world.personal_trainer))),
+        params={"acting_as": "provider"},
+        json={"provider_id": str(world.khan_provider), "role": "physician", "change_reason": "add"},
+    )
+    assert resp.status_code == 403
+
+
 def test_add_member_self_treatment_returns_422(
     client: TestClient, db_session: Session, clock: datetime, mint_token: Callable[..., str]
 ) -> None:
@@ -704,6 +721,22 @@ def test_non_member_provider_denied_clinical_403(
     resp = client.get(
         f"{_EPISODES}/{world.general}/clinical-records",
         headers=_auth(mint_token(str(world.khan_provider))),
+    )
+    assert resp.status_code == 403
+
+
+def test_non_member_provider_cannot_write_clinical_returns_403(
+    client: TestClient, db_session: Session, clock: datetime, mint_token: Callable[..., str]
+) -> None:
+    world = _world(db_session, clock)
+    # khan_provider is a member of shoulder only, never of general: with a valid token
+    # and an active provider profile, the PDP's provider branch still finds no current
+    # membership, so WRITE_CLINICAL is not granted (the write-side IDOR denial path, the
+    # POST counterpart to the GET deny above on the same episode physician writes to).
+    resp = client.post(
+        f"{_EPISODES}/{world.general}/clinical-records",
+        headers=_auth(mint_token(str(world.khan_provider))),
+        json={"body": "outsider note"},
     )
     assert resp.status_code == 403
 
