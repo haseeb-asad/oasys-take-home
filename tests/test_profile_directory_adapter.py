@@ -32,10 +32,13 @@ _T0 = datetime(2026, 1, 1, tzinfo=UTC)
 _T1 = _T0 + timedelta(weeks=4)
 
 
-def _persist_identity(session: Session, email: str) -> UUID:
+def _persist_identity(session: Session, label: str) -> UUID:
+    # Unique email per call (label + uuid suffix) so the row never collides with a
+    # pre-existing committed identity (e.g. a seeded admin@example.com); the email
+    # value is incidental to these org-admin / activeness assertions.
     identity = Identity(
         id=uuid4(),
-        email=email,
+        email=f"{label}-{uuid4().hex[:8]}@example.com",
         display_name="Person",
         password_hash="stub-hash",
         created_at=_T0,
@@ -77,7 +80,7 @@ def _add_admin_membership(
 
 
 def test_is_active_provider_true_over_real_rows(db_session: Session) -> None:
-    identity_id = _persist_identity(db_session, "prov@example.com")
+    identity_id = _persist_identity(db_session, "prov")
     _add_profile(db_session, identity_id, ProfileType.PROVIDER)
     db_session.expunge_all()
     directory = build_profile_directory(db_session)
@@ -86,7 +89,7 @@ def test_is_active_provider_true_over_real_rows(db_session: Session) -> None:
 
 
 def test_is_active_client_true_over_real_rows(db_session: Session) -> None:
-    identity_id = _persist_identity(db_session, "client@example.com")
+    identity_id = _persist_identity(db_session, "client")
     _add_profile(db_session, identity_id, ProfileType.CLIENT)
     db_session.expunge_all()
     directory = build_profile_directory(db_session)
@@ -102,7 +105,7 @@ def test_is_active_provider_false_for_unknown_identity(db_session: Session) -> N
 
 
 def test_org_admin_true_with_profile_and_active_admin_membership(db_session: Session) -> None:
-    identity_id = _persist_identity(db_session, "admin@example.com")
+    identity_id = _persist_identity(db_session, "admin")
     org_id = _persist_org(db_session)
     _add_profile(db_session, identity_id, ProfileType.ORG_STAFF)
     _add_admin_membership(db_session, identity_id, org_id)
@@ -112,7 +115,7 @@ def test_org_admin_true_with_profile_and_active_admin_membership(db_session: Ses
 
 
 def test_org_admin_false_with_profile_but_expired_membership(db_session: Session) -> None:
-    identity_id = _persist_identity(db_session, "expired-admin@example.com")
+    identity_id = _persist_identity(db_session, "expired-admin")
     org_id = _persist_org(db_session)
     _add_profile(db_session, identity_id, ProfileType.ORG_STAFF)
     _add_admin_membership(db_session, identity_id, org_id, to=_T1)  # [t0, t1)
@@ -125,7 +128,7 @@ def test_org_admin_false_with_profile_but_expired_membership(db_session: Session
 def test_org_admin_false_with_admin_membership_but_no_org_staff_profile(
     db_session: Session,
 ) -> None:
-    identity_id = _persist_identity(db_session, "no-profile-admin@example.com")
+    identity_id = _persist_identity(db_session, "no-profile-admin")
     org_id = _persist_org(db_session)
     # An active admin membership but only a PROVIDER profile (no org_staff profile).
     _add_profile(db_session, identity_id, ProfileType.PROVIDER)
