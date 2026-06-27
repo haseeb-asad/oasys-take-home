@@ -31,6 +31,7 @@ from typing import TypeVar
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.care.domain.clinical import ClinicalRecord, RehabAssessment
@@ -53,9 +54,36 @@ from app.care.orm import (
     _rehab_assessment_to_model,
     _responsibility_to_model,
 )
+from app.core.exceptions import UnknownReference
 
 _Row = TypeVar("_Row", bound=_EffectiveDatedRow)
 _Model = TypeVar("_Model", bound=_CareChildModel)
+
+_FK_VIOLATION = "23503"  # Postgres SQLSTATE: foreign_key_violation.
+
+
+def _is_foreign_key_violation(exc: IntegrityError) -> bool:
+    """True iff ``exc`` is a Postgres foreign-key violation (SQLSTATE 23503).
+
+    Defensive, mirroring ``_is_email_unique_violation`` in the identity repo:
+    ``sqlstate`` lives on the wrapped psycopg cause but may be absent, so if it
+    cannot be positively identified as 23503 we return False and the caller
+    re-raises. This narrows translation to dangling references ONLY: a CHECK
+    (23514) or the non-deferrable no-overlap EXCLUDE (23P01) stays a re-raised
+    ``IntegrityError`` (its own mapping / 500), never an ``UnknownReference``.
+    """
+    return getattr(exc.orig, "sqlstate", None) == _FK_VIOLATION
+
+
+def _violated_constraint_name(exc: IntegrityError) -> str | None:
+    """The violated constraint name from the wrapped psycopg ``diag`` (else None).
+
+    Used only to tag ``UnknownReference`` for structured logging (never surfaced in
+    the response body); defensively returns None when the driver omits it.
+    """
+    diag = getattr(exc.orig, "diag", None)
+    name: object = getattr(diag, "constraint_name", None)
+    return name if isinstance(name, str) else None
 
 
 class SqlAlchemyEpisodeRepository:
@@ -88,7 +116,29 @@ class SqlAlchemyEpisodeRepository:
         )
 
     def save(self, episode: Episode) -> None:
-        """Upsert the aggregate via the two-phase flush (see module docstring)."""
+        """Upsert the aggregate, translating a dangling FK to ``UnknownReference``.
+
+        The whole two-phase upsert (see the module docstring) runs inside a SAVEPOINT
+        (``begin_nested``): a client-supplied foreign key with no parent row - a bad
+        ``client_id`` / ``managing_org_id`` on the episode root (Phase A) or a bad
+        ``provider_id`` on a child row (Phase B) - trips a Postgres FK violation on
+        flush, which is translated to a typed ``UnknownReference`` (-> 422) instead
+        of escaping as a raw ``IntegrityError`` (-> 500). The context manager
+        guarantees the SAVEPOINT is released on success or rolled back on error, so a
+        translated failure never leaves a half-open SAVEPOINT and the session stays
+        usable. Any non-FK violation (the no-overlap EXCLUDE 23P01, a CHECK 23514) is
+        re-raised untouched.
+        """
+        try:
+            with self._session.begin_nested():
+                self._upsert(episode)
+        except IntegrityError as exc:
+            if _is_foreign_key_violation(exc):
+                raise UnknownReference(_violated_constraint_name(exc)) from exc
+            raise
+
+    def _upsert(self, episode: Episode) -> None:
+        """The two-phase flush proper: root upsert + closures, then new-row inserts."""
         root = self._session.get(EpisodeModel, episode.id)
         if root is None:
             self._session.add(_episode_to_model(episode))

@@ -25,7 +25,7 @@ from app.care.domain.exceptions import (
     OverlappingPeriod,
     SelfTreatment,
 )
-from app.core.exceptions import DomainError, NotAuthenticated, NotFound
+from app.core.exceptions import DomainError, NotAuthenticated, NotFound, UnknownReference
 from app.identity.domain.exceptions import EmailAlreadyRegistered
 
 logger = logging.getLogger("kinetic")
@@ -34,6 +34,7 @@ logger = logging.getLogger("kinetic")
 _DOMAIN_STATUS: dict[type[Exception], int] = {
     NotAuthenticated: 401,
     NotFound: 404,
+    UnknownReference: 422,
     EmailAlreadyRegistered: 409,
     Forbidden: 403,
     ProfileSurfaceRequired: 403,

@@ -40,3 +40,24 @@ class NotFound(DomainError):
 
     def __init__(self, detail: str = "The requested resource was not found.") -> None:
         super().__init__(detail)
+
+
+class UnknownReference(DomainError):
+    """A write named a foreign key whose target row does not exist.
+
+    Raised by a repository when a client-supplied foreign key (e.g. an episode's
+    ``client_id`` / ``managing_org_id``, or a member's ``provider_id``) names a row
+    absent from the database, so the INSERT/UPDATE trips a Postgres foreign-key
+    violation (SQLSTATE 23503). Cross-cutting like ``NotFound``: a dangling
+    reference is not owned by a single bounded context, so the shared kernel is its
+    home. Mapped centrally to HTTP 422 (bad client input, not a server fault).
+
+    The violated ``constraint_name`` is kept as an attribute for structured logging
+    but deliberately omitted from the generic message, so the response body never
+    echoes the submitted id (no PII / enumeration oracle), mirroring
+    ``EmailAlreadyRegistered``.
+    """
+
+    def __init__(self, constraint_name: str | None = None) -> None:
+        self.constraint_name = constraint_name
+        super().__init__("A referenced resource does not exist.")

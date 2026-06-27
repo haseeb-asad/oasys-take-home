@@ -23,7 +23,8 @@ _EXTENSIONS = ("pgcrypto", "btree_gist", "citext")
 
 def test_alembic_config_loads_and_revision_chain(alembic_cfg: Config) -> None:
     script = ScriptDirectory.from_config(alembic_cfg)
-    assert script.get_current_head() == "0006"
+    assert script.get_current_head() == "0007"
+    assert script.get_revision("0007").down_revision == "0006"
     assert script.get_revision("0006").down_revision == "0005"
     assert script.get_revision("0005").down_revision == "0004"
     assert script.get_revision("0004").down_revision == "0003"
@@ -44,7 +45,7 @@ def test_extensions_created_by_migration(db_engine: Engine) -> None:
         extensions = set(conn.scalars(text("SELECT extname FROM pg_extension")).all())
         version = conn.scalar(text("SELECT version_num FROM alembic_version"))
     assert set(_EXTENSIONS) <= extensions
-    assert version == "0006"
+    assert version == "0007"
 
 
 def test_identities_table_created(db_engine: Engine) -> None:
@@ -67,7 +68,7 @@ def test_identities_table_created(db_engine: Engine) -> None:
         version = conn.scalar(text("SELECT version_num FROM alembic_version"))
     columns = {row[0]: (row[1], row[2]) for row in rows}
     assert set(columns) == expected_columns
-    assert version == "0006"
+    assert version == "0007"
     # CITEXT email + TIMESTAMPTZ created_at (citext reports as a USER-DEFINED type
     # whose udt_name is 'citext'); these guard case-insensitivity + the naive trap.
     assert columns["email"][1] == "citext"
@@ -126,10 +127,11 @@ def test_organization_tables_created(db_engine: Engine) -> None:
         "ck_organizations_type",
         "pk_org_staff_memberships",
         "ck_org_staff_memberships_role",
+        "ck_org_staff_memberships_period",
         "fk_org_staff_memberships_identity_id_identities",
         "fk_org_staff_memberships_org_id_organizations",
     } <= constraints
-    assert version == "0006"
+    assert version == "0007"
 
 
 def test_profiles_table_created(db_engine: Engine) -> None:
@@ -159,7 +161,7 @@ def test_profiles_table_created(db_engine: Engine) -> None:
         "ck_profiles_profile_type",
         "fk_profiles_identity_id_identities",
     } <= constraints
-    assert version == "0006"
+    assert version == "0007"
 
 
 def _columns(conn: Connection, table: str) -> dict[str, str]:
@@ -259,7 +261,7 @@ def test_care_tables_created(db_engine: Engine) -> None:
     } <= constraints
     # The two temporal no-overlap EXCLUDE constraints (one holder per instant).
     assert exclude_names == {"responsibility_assignments_no_overlap", "booking_contacts_no_overlap"}
-    assert version == "0006"
+    assert version == "0007"
 
 
 def test_clinical_tables_created(db_engine: Engine) -> None:
@@ -293,7 +295,7 @@ def test_clinical_tables_created(db_engine: Engine) -> None:
         "fk_rehab_assessments_episode_id_episodes",
         "fk_rehab_assessments_author_provider_id_identities",
     } <= constraints
-    assert version == "0006"
+    assert version == "0007"
 
 
 def test_upgrade_offline_emits_create_extension(
