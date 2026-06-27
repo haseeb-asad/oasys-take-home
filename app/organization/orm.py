@@ -51,7 +51,14 @@ class OrgStaffMembershipModel(Base):
     """
 
     __tablename__ = "org_staff_memberships"
-    __table_args__ = (CheckConstraint("role IN ('admin', 'member')", name="role"),)
+    # The SHORT tokens resolve via the ``ck_%(table_name)s_%(constraint_name)s``
+    # convention to ``ck_org_staff_memberships_role`` / ``..._period`` (migrations
+    # 0003 / 0007). The ``period`` CHECK mirrors ``EffectivePeriod``'s positive-length
+    # rule so the DB and the domain value object agree on a valid authority window.
+    __table_args__ = (
+        CheckConstraint("role IN ('admin', 'member')", name="role"),
+        CheckConstraint("effective_to IS NULL OR effective_from < effective_to", name="period"),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
     identity_id: Mapped[UUID] = mapped_column(ForeignKey("identities.id"), nullable=False)

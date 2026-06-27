@@ -396,6 +396,59 @@ def test_create_ignores_decoy_responsible_provider_id(
     assert data["responsible_provider_id"] != str(world.khan_provider)
 
 
+# --- unknown client-supplied FK -> 422 (a dangling reference is not a 500) ----
+
+
+def test_create_episode_unknown_client_returns_422(
+    client: TestClient, db_session: Session, clock: datetime, mint_token: Callable[..., str]
+) -> None:
+    world = _world(db_session, clock)
+    # A well-formed but non-existent client_id: the episodes.client_id FK has no parent
+    # row, so the flush trips a Postgres FK violation. That is bad client input and must
+    # surface as a 422, never a raw IntegrityError mapped to a 500.
+    body = {
+        "client_id": str(uuid4()),
+        "reason": "new knee episode",
+        "managing_org_id": str(world.fitgym),
+        "responsible_role": "physician",
+        "change_reason": "opened",
+    }
+    resp = client.post(_EPISODES, headers=_auth(mint_token(str(world.physician))), json=body)
+    assert resp.status_code == 422
+
+
+def test_create_episode_unknown_managing_org_returns_422(
+    client: TestClient, db_session: Session, clock: datetime, mint_token: Callable[..., str]
+) -> None:
+    world = _world(db_session, clock)
+    # A well-formed but non-existent managing_org_id trips the episodes.managing_org_id FK.
+    body = {
+        "client_id": str(world.client),
+        "reason": "new knee episode",
+        "managing_org_id": str(uuid4()),
+        "responsible_role": "physician",
+        "change_reason": "opened",
+    }
+    resp = client.post(_EPISODES, headers=_auth(mint_token(str(world.physician))), json=body)
+    assert resp.status_code == 422
+
+
+def test_add_member_unknown_provider_returns_422(
+    client: TestClient, db_session: Session, clock: datetime, mint_token: Callable[..., str]
+) -> None:
+    world = _world(db_session, clock)
+    # The physiotherapist is responsible on general (holds MANAGE_TEAM), so authz passes;
+    # the provider_id is well-formed but is no identity, so the new membership row trips the
+    # episode_memberships.provider_id FK. The dangling reference must be a 422, not a 500.
+    resp = client.post(
+        f"{_EPISODES}/{world.general}/members",
+        headers=_auth(mint_token(str(world.physiotherapist))),
+        params={"acting_as": "provider"},
+        json={"provider_id": str(uuid4()), "role": "physician", "change_reason": "add"},
+    )
+    assert resp.status_code == 422
+
+
 # --- team management: both MANAGE_TEAM paths, self-treatment, roster ----------
 
 

@@ -10,9 +10,12 @@ close-old/open-new handoff clear of the NON-deferrable, per-statement
 ``EXCLUDE USING gist`` no-overlap constraints on responsibility / booking-face.
 
 FK parents (a client Identity, three provider Identities, a managing Organization)
-are persisted first via their repositories. Every raw-``IntegrityError`` test makes
-that violation its terminal DB action (one per test): the plain ``flush`` poisons
-the session, which the per-test rollback then recovers (AM3).
+are persisted first via their repositories. A bad foreign key passed through
+``repo.save`` is translated to a typed ``UnknownReference`` (the SAVEPOINT inside
+``save`` rolls back cleanly, so the session stays usable); the raw-``IntegrityError``
+tests instead drive a direct ``execute`` that makes the violation the test's terminal
+DB action (one per test), and the per-test rollback then recovers the poisoned
+session (AM3).
 """
 
 from __future__ import annotations
@@ -30,6 +33,7 @@ from app.care.domain.episode import Episode, EpisodeStatus
 from app.care.domain.exceptions import EpisodeClosed
 from app.care.domain.value_objects import Role
 from app.care.repository import SqlAlchemyEpisodeRepository
+from app.core.exceptions import UnknownReference
 from app.identity.domain.entities import Identity
 from app.identity.repository import SqlAlchemyIdentityRepository
 from app.organization.domain.entities import Organization
@@ -482,9 +486,11 @@ def test_episode_fk_violation_missing_client_raises(db_session: Session) -> None
         responsible_role=Role.PHYSICIAN,
         change_reason="opened",
     )
-    with pytest.raises(IntegrityError) as exc_info:
+    # The Phase A root INSERT trips the client FK; save() translates it to a typed
+    # UnknownReference (-> 422), keeping the bad reference off the 500 path.
+    with pytest.raises(UnknownReference) as exc_info:
         repo.save(episode)
-    assert "fk_episodes_client_id_identities" in str(exc_info.value.orig)
+    assert exc_info.value.constraint_name == "fk_episodes_client_id_identities"
 
 
 def test_episode_fk_violation_missing_managing_org_raises(db_session: Session) -> None:
@@ -500,9 +506,9 @@ def test_episode_fk_violation_missing_managing_org_raises(db_session: Session) -
         responsible_role=Role.PHYSICIAN,
         change_reason="opened",
     )
-    with pytest.raises(IntegrityError) as exc_info:
+    with pytest.raises(UnknownReference) as exc_info:
         repo.save(episode)
-    assert "fk_episodes_managing_org_id_organizations" in str(exc_info.value.orig)
+    assert exc_info.value.constraint_name == "fk_episodes_managing_org_id_organizations"
 
 
 def test_child_fk_violation_missing_provider_raises(db_session: Session) -> None:
@@ -520,9 +526,12 @@ def test_child_fk_violation_missing_provider_raises(db_session: Session) -> None
         responsible_role=Role.PHYSICIAN,
         change_reason="opened",
     )
-    with pytest.raises(IntegrityError) as exc_info:
+    # A Phase B child INSERT trips a provider FK; save() translates it to
+    # UnknownReference. The constraint is whichever provider FK flushes first.
+    with pytest.raises(UnknownReference) as exc_info:
         repo.save(episode)
-    assert "provider_id_identities" in str(exc_info.value.orig)
+    assert exc_info.value.constraint_name is not None
+    assert "provider_id_identities" in exc_info.value.constraint_name
 
 
 def test_child_fk_violation_missing_episode_raises(db_session: Session) -> None:

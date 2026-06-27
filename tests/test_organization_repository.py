@@ -352,6 +352,36 @@ def test_membership_role_check_rejects_bad_value_raw_insert(db_session: Session)
     assert "ck_org_staff_memberships_role" in str(exc_info.value.orig)
 
 
+@pytest.mark.parametrize(
+    ("effective_from", "effective_to"),
+    [(_T0, _T0), (_T1, _T0)],  # zero-length and inverted: both fail (from < to is false)
+)
+def test_membership_period_check_rejects_invalid_period_raw_insert(
+    db_session: Session, effective_from: datetime, effective_to: datetime
+) -> None:
+    # This table is the org-admin authority source, so the DB - not only the domain
+    # value object - must forbid a degenerate/inverted authority window. FK parents
+    # are satisfied and the role is valid, so the ONLY violation is the period CHECK;
+    # the raw insert bypasses the domain (which would reject a non-positive window).
+    identity_id = _persist_identity(db_session, "period-check@example.com")
+    org_id = _persist_org(db_session)
+    with pytest.raises(IntegrityError) as exc_info:
+        db_session.execute(
+            text(
+                "INSERT INTO org_staff_memberships "
+                "(id, identity_id, org_id, role, effective_from, effective_to) "
+                "VALUES (gen_random_uuid(), :identity_id, :org_id, 'admin', :ef, :et)"
+            ),
+            {
+                "identity_id": identity_id,
+                "org_id": org_id,
+                "ef": effective_from,
+                "et": effective_to,
+            },
+        )
+    assert "ck_org_staff_memberships_period" in str(exc_info.value.orig)
+
+
 # --- has_active_admin_membership (service read over real Postgres) -----------
 
 
