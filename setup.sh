@@ -44,50 +44,32 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 
-# --- 4. Python deps (prefer uv; else venv + pip) ---
-if command -v uv >/dev/null 2>&1; then
-  log "Installing deps with uv…"
-  uv sync
-  RUN_PREFIX="uv run"
-else
-  PY=""
-  for c in python3.14 python3 python; do command -v "$c" >/dev/null 2>&1 && { PY="$c"; break; }; done
-  [ -n "$PY" ] || { err "No Python interpreter found."; exit 1; }
-  PYVER="$("$PY" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
-  log "Python: $PY ($PYVER)"
-  case "$PYVER" in
-    3.14|3.1[5-9]|3.[2-9][0-9]) : ;;
-    *) log "WARNING: project targets Python 3.14; you have $PYVER (deps may not resolve)";;
-  esac
-  [ -d .venv ] || { log "Creating venv (.venv)…"; "$PY" -m venv .venv; }
-  log "Installing deps with pip…"
-  ./.venv/bin/python -m pip install --quiet --upgrade pip
-  ./.venv/bin/python -m pip install --quiet -r requirements.txt
-  RUN_PREFIX="./.venv/bin"
-fi
+# --- 4. Python deps (venv + pip) ---
+PY=""
+for c in python3.14 python3 python; do command -v "$c" >/dev/null 2>&1 && { PY="$c"; break; }; done
+[ -n "$PY" ] || { err "No Python interpreter found."; exit 1; }
+PYVER="$("$PY" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+log "Python: $PY ($PYVER)"
+case "$PYVER" in
+  3.14|3.1[5-9]|3.[2-9][0-9]) : ;;
+  *) log "WARNING: project targets Python 3.14; you have $PYVER (deps may not resolve)";;
+esac
+[ -d .venv ] || { log "Creating venv (.venv)…"; "$PY" -m venv .venv; }
+log "Installing deps with pip…"
+./.venv/bin/python -m pip install --quiet --upgrade pip
+./.venv/bin/python -m pip install --quiet -r requirements.txt
+RUN_PREFIX="./.venv/bin"
 
 # --- 5. .env ---
 [ -f .env ] || { log "Creating .env from .env.example…"; cp .env.example .env; }
 
 # --- 6. migrations (schema, before seed) ---
 log "Applying migrations (alembic upgrade head)…"
-if [ "$RUN_PREFIX" = "uv run" ]; then
-  uv run alembic upgrade head
-else
-  ./.venv/bin/alembic upgrade head
-fi
+./.venv/bin/alembic upgrade head
 
 # --- 7. seed (idempotent; builds the Sara world via the application services) ---
 log "Seeding the database (python -m scripts.seed)…"
-if [ "$RUN_PREFIX" = "uv run" ]; then
-  uv run python -m scripts.seed
-else
-  ./.venv/bin/python -m scripts.seed
-fi
+./.venv/bin/python -m scripts.seed
 
 log "Setup complete. Postgres is running, deps installed, database seeded."
-if [ "$RUN_PREFIX" = "uv run" ]; then
-  echo "    Start the API:  uv run uvicorn app.main:app --reload"
-else
-  echo "    Start the API:  ./.venv/bin/uvicorn app.main:app --reload"
-fi
+echo "    Start the API:  ./.venv/bin/uvicorn app.main:app --reload"
