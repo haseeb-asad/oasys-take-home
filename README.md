@@ -218,7 +218,7 @@ The aggregate protects these invariants:
 - responsibility handoff closes the old row and opens the new row at the same instant
 - booking face handoff follows the same no-gap, no-overlap pattern
 - closed episodes cannot be mutated
-- history is kept as rows with role, effective period, and change reason
+- history is kept as effective-dated rows with a change reason; membership rows also carry the role
 
 Postgres reinforces the one-at-a-time rules with `EXCLUDE USING gist` constraints
 on responsibility and booking-face periods.
@@ -271,7 +271,7 @@ The PDF scenarios map as follows:
 - Rehab closes but history remains: closing an episode blocks mutation, but rows remain for historical reads.
 - See vs act: resources require capabilities, and roles grant different capability sets.
 - Cross-org access: episode membership is the access boundary, not provider employment or org membership.
-- History: membership, responsibility, and face changes keep role, time window, and `change_reason`.
+- History: membership, responsibility, and face changes keep their time window and `change_reason`, and membership rows also keep the role.
 
 ## Key Decisions And Trade-offs
 
@@ -341,8 +341,8 @@ responsible provider, and booking face, then records `migrated_episode_id` so th
 backfill is idempotent.
 
 The sketch takes the enriched-staging-table path: the legacy table carries the
-`role` and `managing_org_id` the episode model requires, so the backfill is a
-deterministic copy. A second path, closer to a literal one-provider-per-client
+`role` and `managing_org_id` the episode model requires, so the backfill copies
+those fields straight from staging (a policy-free projection). A second path, closer to a literal one-provider-per-client
 link, would carry only the client and provider and synthesize the missing
 structure during the backfill:
 
