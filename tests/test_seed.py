@@ -23,6 +23,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.care.domain.episode import EpisodeStatus
 from app.care.orm import (
     BookingContactModel,
     EpisodeMembershipModel,
@@ -40,7 +41,7 @@ from app.identity.service import has_active_profile
 from app.organization.orm import OrganizationModel, OrgStaffMembershipModel
 from app.organization.repository import SqlAlchemyOrgStaffMembershipRepository
 from app.organization.service import has_active_admin_membership
-from scripts.seed import SEED_EPOCH, SaraWorld, _seed_id, seed
+from scripts.seed import SEED_EPOCH, SaraWorld, _seed_id, seed, world_ids
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _EIGHT_WEEKS = timedelta(weeks=8)
@@ -93,9 +94,10 @@ def test_seed_returns_sara_world_with_all_ids(db_session: Session) -> None:
         world.khan_solo,
         world.general,
         world.shoulder,
+        world.closed,
     ]
     assert all(isinstance(i, UUID) for i in ids)
-    assert len(set(ids)) == 10
+    assert len(set(ids)) == 11
 
 
 def test_seed_creates_expected_identity_and_profile_counts(db_session: Session) -> None:
@@ -109,9 +111,9 @@ def test_seed_creates_two_organizations(db_session: Session) -> None:
     assert _count(db_session, OrganizationModel) == 2
 
 
-def test_seed_creates_two_episodes(db_session: Session) -> None:
+def test_seed_creates_three_episodes(db_session: Session) -> None:
     seed(db_session)
-    assert _count(db_session, EpisodeModel) == 2
+    assert _count(db_session, EpisodeModel) == 3
 
 
 # --- org-staff membership ----------------------------------------------------
@@ -179,8 +181,10 @@ def test_episodes_managed_by_correct_orgs(db_session: Session) -> None:
     repo = SqlAlchemyEpisodeRepository(db_session)
     general = get_episode(repo, world.general)
     shoulder = get_episode(repo, world.shoulder)
+    closed = get_episode(repo, world.closed)
     assert general is not None and general.managing_org_id == world.fitgym
     assert shoulder is not None and shoulder.managing_org_id == world.khan_solo
+    assert closed is not None and closed.managing_org_id == world.khan_solo
 
 
 def test_general_training_child_row_cardinality(db_session: Session) -> None:
@@ -195,6 +199,52 @@ def test_shoulder_rehab_child_row_cardinality(db_session: Session) -> None:
     assert _count_child(db_session, EpisodeMembershipModel, world.shoulder) == 3
     assert _count_child(db_session, ResponsibilityAssignmentModel, world.shoulder) == 1
     assert _count_child(db_session, BookingContactModel, world.shoulder) == 1
+
+
+# --- closed episode (Prior Rehab, scenario S4) -------------------------------
+
+
+def test_prior_rehab_episode_is_closed(db_session: Session) -> None:
+    """The Prior Rehab episode is seeded CLOSED (status closed / not active)."""
+    world = seed(db_session)
+    closed = get_episode(SqlAlchemyEpisodeRepository(db_session), world.closed)
+    assert closed is not None
+    assert closed.is_active is False
+    assert closed.status is EpisodeStatus.CLOSED
+    assert closed.closed_at is not None
+    # Persisted reason + managing org match the seeded discharged-rehab scenario.
+    row = db_session.get(EpisodeModel, world.closed)
+    assert row is not None and row.reason == "prior_rehab"
+    assert closed.managing_org_id == world.khan_solo
+
+
+def test_prior_rehab_child_row_cardinality(db_session: Session) -> None:
+    """Closing leaves the bootstrap roster intact: 1 membership (Khan) + 1 resp + 1 face."""
+    world = seed(db_session)
+    assert _count_child(db_session, EpisodeMembershipModel, world.closed) == 1
+    assert _count_child(db_session, ResponsibilityAssignmentModel, world.closed) == 1
+    assert _count_child(db_session, BookingContactModel, world.closed) == 1
+    closed = get_episode(SqlAlchemyEpisodeRepository(db_session), world.closed)
+    assert closed is not None
+    # The single member / responsible / face is Khan (append-only rows survive the close).
+    assert {m.provider_id for m in closed.memberships} == {world.khan}
+    assert closed.responsibility[0].provider_id == world.khan
+    assert closed.faces[0].provider_id == world.khan
+
+
+def test_prior_rehab_close_is_idempotent(db_session: Session) -> None:
+    """A re-run leaves exactly 3 episodes, the closed one still closed, no extra rows."""
+    world = seed(db_session)
+    before = _snapshot_counts(db_session)
+    seed(db_session)  # re-run: episode already closed -> close_episode is NOT called
+    after = _snapshot_counts(db_session)
+    assert before == after
+    assert _count(db_session, EpisodeModel) == 3
+    closed = get_episode(SqlAlchemyEpisodeRepository(db_session), world.closed)
+    assert closed is not None and closed.is_active is False
+    assert _count_child(db_session, EpisodeMembershipModel, world.closed) == 1
+    assert _count_child(db_session, ResponsibilityAssignmentModel, world.closed) == 1
+    assert _count_child(db_session, BookingContactModel, world.closed) == 1
 
 
 def test_general_training_responsible_and_face_are_mike(db_session: Session) -> None:
@@ -342,6 +392,20 @@ def test_top_level_ids_are_deterministic(db_session: Session) -> None:
     assert world.khan_solo == _seed_id("org:khan_solo")
     assert world.general == _seed_id("episode:general_training")
     assert world.shoulder == _seed_id("episode:shoulder_rehab")
+    assert world.closed == _seed_id("episode:prior_rehab")
+
+
+def test_world_ids_matches_seed(db_session: Session) -> None:
+    """The DB-free ``world_ids()`` equals the SaraWorld ``seed()`` actually persists.
+
+    ``world_ids()`` precomputes the deterministic top-level ids without a database;
+    ``seed()`` threads those same ids in as its ``new_id``s and returns the ids of
+    the rows it actually wrote. Asserting equality is the drift guard: if the seed's
+    canonical slugs/emails and ``world_ids()`` ever diverge, this fails (and the
+    ``/demo`` route, which resolves the world via ``world_ids()``, would inject
+    wrong ids).
+    """
+    assert world_ids() == seed(db_session)
 
 
 def test_seed_does_not_commit(db_session: Session, monkeypatch: pytest.MonkeyPatch) -> None:

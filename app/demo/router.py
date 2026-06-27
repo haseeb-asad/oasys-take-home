@@ -1,20 +1,30 @@
 """The top-level ``/demo`` route: a self-contained live access-scenario page.
 
-Edge layer (web). The handler depends ONLY on ``get_session`` to look up the
-seeded "Sara world" by its stable business keys (identities by email,
-organizations by name, episodes by reason) and inject their ids plus the seed
-password into a single static HTML page. The page's own JavaScript then replays
-the NON-MUTATING care-team access scenarios against the SAME-ORIGIN live ``/v1``
-API (reads plus denied writes), so the demo is repeatable and never degrades the
-seed.
+Edge layer (web). The handler depends ONLY on ``get_session`` and on the seed's
+DB-free ``world_ids()`` to inject the Sara world's DETERMINISTIC uuid5 ids (plus
+the seed login password) into a single static HTML page. The page's own
+JavaScript then replays the NON-MUTATING care-team access scenarios against the
+SAME-ORIGIN live ``/v1`` API (reads plus denied writes), so the demo is
+repeatable and never degrades the seed.
 
-There is no org-create / profile-create HTTP surface, so the page cannot
-bootstrap a fresh world: it drives the COMMITTED seed (``python -m scripts.seed``).
-When the core seed entities are absent the route still returns 200, in a
-"seed-missing" mode whose page shows a clear run-the-seed notice instead of
-running the scenarios. No business rule, policy, or SQL beyond the lookup lives
-here; the placeholder ``__SEED_JSON__`` in ``demo.html`` is replaced with the
-``json.dumps`` of the lookup result.
+Why deterministic ids and not a by-business-key lookup: ``reason`` (episode) and
+``name`` (org) are NOT unique columns - the public API lets anyone open an episode
+with the same ``reason`` - so a by-reason / by-name / by-email query could resolve
+the WRONG row. ``world_ids()`` returns the exact uuid5 ids ``scripts.seed`` writes
+(``test_world_ids_matches_seed`` pins the two together), so the page always targets
+the real seed rows.
+
+``seeded`` is set True only when the KEY seed rows actually EXIST in the database by
+id (a deterministic id that has not been seeded yet still yields the run-the-seed
+notice). When the world is absent the route still returns 200, in a "seed-missing"
+mode whose page shows a clear run-the-seed notice instead of running the scenarios.
+No business rule, policy, or SQL beyond the presence check lives here; the
+placeholder ``__SEED_JSON__`` in ``demo.html`` is replaced with the ``json.dumps``
+of the lookup result.
+
+The ``scripts.seed`` import below is an INTENTIONAL demo-only coupling to the seed
+world: this read-only page exists to showcase that one committed world, so it is
+allowed to know its deterministic ids directly.
 """
 
 from __future__ import annotations
@@ -25,13 +35,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.care.orm import EpisodeModel
 from app.core.deps import get_session
 from app.identity.orm import IdentityModel
-from app.organization.orm import OrganizationModel
+from scripts.seed import SaraWorld, world_ids  # intentional demo-only coupling to the seed world
 
 router = APIRouter(tags=["demo"])
 
@@ -41,62 +50,49 @@ _SEED_PLACEHOLDER = "__SEED_JSON__"
 # The seed's deterministic non-secret login password (mirrors scripts/seed.py).
 _SEED_PASSWORD = "seed-not-a-secret"
 
-# The seed's stable business keys, by the page-facing handle they map to. These
-# mirror scripts/seed.py exactly (identity email, org name, episode reason).
-_IDENTITY_EMAILS: dict[str, str] = {
-    "sara": "sara@example.com",
-    "mike": "mike@example.com",
-    "khan": "khan@example.com",
-    "patel": "patel@example.com",
-    "lee": "lee@example.com",
-    "olivia": "admin@example.com",
-}
-_ORG_NAMES: dict[str, str] = {
-    "fitgym": "FitGym",
-    "khan_solo": "Khan Solo Practice",
-}
-_EPISODE_REASONS: dict[str, str] = {
-    "general": "general_training",
-    "shoulder": "shoulder_rehab",
-}
-# Every handle whose id the page needs before it can replay the live scenarios.
-_REQUIRED_IDS: tuple[str, ...] = (*_IDENTITY_EMAILS, *_ORG_NAMES, *_EPISODE_REASONS)
 
+def _world_present(session: Session, ids: SaraWorld) -> bool:
+    """True iff the KEY seed rows exist in the database, by their deterministic id.
 
-def _identity_id(session: Session, email: str) -> str | None:
-    """The id of the identity with ``email`` as a string (None if absent)."""
-    model = session.scalars(select(IdentityModel).where(IdentityModel.email == email)).first()
-    return str(model.id) if model is not None else None
-
-
-def _org_id(session: Session, name: str) -> str | None:
-    """The id of the organization named ``name`` as a string (None if absent)."""
-    model = session.scalars(select(OrganizationModel).where(OrganizationModel.name == name)).first()
-    return str(model.id) if model is not None else None
-
-
-def _episode_id(session: Session, reason: str) -> str | None:
-    """The id of the episode whose ``reason`` matches as a string (None if absent)."""
-    model = session.scalars(select(EpisodeModel).where(EpisodeModel.reason == reason)).first()
-    return str(model.id) if model is not None else None
+    Presence is a primary-key ``get`` on a representative subset (both episodes and
+    a couple of identities), NOT merely "world_ids() returned an id": an id that has
+    not been seeded yet is correctly reported absent, so the page falls back to the
+    run-the-seed notice rather than firing scenarios against rows that do not exist.
+    """
+    return (
+        session.get(EpisodeModel, ids.general) is not None
+        and session.get(EpisodeModel, ids.shoulder) is not None
+        and session.get(EpisodeModel, ids.closed) is not None
+        and session.get(IdentityModel, ids.khan) is not None
+        and session.get(IdentityModel, ids.org_admin) is not None
+    )
 
 
 def _build_seed(session: Session) -> dict[str, object]:
-    """Resolve the seed business keys into the page's injected ``SEED`` dict.
+    """Resolve the seed's deterministic ids into the page's injected ``SEED`` dict.
 
-    Values are all strings (or None when a key is unresolved). ``seeded`` is True
-    only when EVERY required id resolved; the page replays the scenarios only
-    then, otherwise it renders the run-the-seed notice.
+    Ids are all strings (the page's JS only ever interpolates them into URLs). The
+    page-facing handle ``olivia`` maps to the FitGym org admin (``admin@example.com``,
+    ``SaraWorld.org_admin``). ``seeded`` is True only when the key rows are present
+    in the DB; the page replays the scenarios only then, otherwise it renders the
+    run-the-seed notice.
     """
-    seed: dict[str, object] = {"password": _SEED_PASSWORD}
-    for handle, email in _IDENTITY_EMAILS.items():
-        seed[handle] = _identity_id(session, email)
-    for handle, name in _ORG_NAMES.items():
-        seed[handle] = _org_id(session, name)
-    for handle, reason in _EPISODE_REASONS.items():
-        seed[handle] = _episode_id(session, reason)
-    seed["seeded"] = all(seed.get(handle) is not None for handle in _REQUIRED_IDS)
-    return seed
+    ids = world_ids()
+    return {
+        "password": _SEED_PASSWORD,
+        "sara": str(ids.sara),
+        "mike": str(ids.mike),
+        "khan": str(ids.khan),
+        "patel": str(ids.patel),
+        "lee": str(ids.lee),
+        "olivia": str(ids.org_admin),
+        "fitgym": str(ids.fitgym),
+        "khan_solo": str(ids.khan_solo),
+        "general": str(ids.general),
+        "shoulder": str(ids.shoulder),
+        "closed": str(ids.closed),
+        "seeded": _world_present(session, ids),
+    }
 
 
 @router.get("/demo", response_class=HTMLResponse)

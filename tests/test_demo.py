@@ -17,7 +17,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from scripts.seed import seed
+from scripts.seed import seed, world_ids
 
 
 def test_demo_renders_with_seeded_world(client: TestClient, db_session: Session) -> None:
@@ -33,6 +33,26 @@ def test_demo_renders_with_seeded_world(client: TestClient, db_session: Session)
     assert str(world.shoulder) in body
     # At least one scenario title from the page is present (static template text).
     assert "Khan reads the Shoulder episode" in body
+
+
+def test_demo_seeded_injects_deterministic_ids(client: TestClient, db_session: Session) -> None:
+    """When seeded, the page injects the DB-free deterministic ids and ``seeded`` true.
+
+    The route resolves the world via ``world_ids()`` (not a by-reason/by-name lookup),
+    so the injected shoulder id is exactly the seed's uuid5 id and the presence check
+    flips ``seeded`` to true once the rows exist.
+    """
+    seed(db_session)
+    ids = world_ids()
+
+    resp = client.get("/demo")
+
+    body = resp.text
+    assert str(ids.shoulder) in body
+    assert str(ids.general) in body
+    # The closed (Prior Rehab) episode id is injected so the page can replay S4 live.
+    assert str(ids.closed) in body
+    assert '"seeded": true' in body
 
 
 def test_demo_without_seed_shows_notice(client: TestClient) -> None:

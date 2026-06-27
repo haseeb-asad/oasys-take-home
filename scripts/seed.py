@@ -38,7 +38,7 @@ from sqlalchemy.orm import Session
 from app.care.domain.episode import Episode
 from app.care.domain.value_objects import Role
 from app.care.repository import SqlAlchemyEpisodeRepository
-from app.care.service import add_member, get_episode, open_episode
+from app.care.service import add_member, close_episode, get_episode, open_episode
 from app.core.database import get_sessionmaker
 from app.identity.domain.value_objects import ProfileType
 from app.identity.repository import (
@@ -90,6 +90,33 @@ class SaraWorld:
     khan_solo: UUID
     general: UUID
     shoulder: UUID
+    closed: UUID
+
+
+def world_ids() -> SaraWorld:
+    """The seed's deterministic top-level ids, computed WITHOUT a database (A16).
+
+    Pure: every id is ``uuid5(_SEED_NS, key)`` over the SAME canonical slugs
+    ``seed()`` uses (``identity:<email>``, ``org:<slug>``, ``episode:<slug>``), so a
+    caller that only needs the ids (e.g. the read-only ``/demo`` route) can resolve
+    the Sara world without a DB round-trip or re-running the seed. ``seed()`` threads
+    these very ids in as its ``new_id``s, and ``test_world_ids_matches_seed`` asserts
+    ``world_ids() == seed(db)``, so the precomputed ids and the persisted ids can
+    never drift.
+    """
+    return SaraWorld(
+        sara=_seed_id("identity:sara@example.com"),
+        mike=_seed_id("identity:mike@example.com"),
+        khan=_seed_id("identity:khan@example.com"),
+        patel=_seed_id("identity:patel@example.com"),
+        lee=_seed_id("identity:lee@example.com"),
+        org_admin=_seed_id("identity:admin@example.com"),
+        fitgym=_seed_id("org:fitgym"),
+        khan_solo=_seed_id("org:khan_solo"),
+        general=_seed_id("episode:general_training"),
+        shoulder=_seed_id("episode:shoulder_rehab"),
+        closed=_seed_id("episode:prior_rehab"),
+    )
 
 
 # --- per-entity idempotent helpers (each gates, then creates only if absent) ---
@@ -101,11 +128,13 @@ def _ensure_identity(
     email: str,
     display_name: str,
     now: datetime,
+    new_id: UUID,
 ) -> UUID:
     """Return the identity id for ``email``, registering it once if absent.
 
     Gate: ``get_by_email`` (the email carries the only unique business key). The
-    deterministic ``new_id`` is used only on the create path.
+    deterministic ``new_id`` (supplied by ``world_ids()``) is used only on the
+    create path.
     """
     existing = repo.get_by_email(email)
     if existing is not None:
@@ -116,7 +145,7 @@ def _ensure_identity(
         display_name,
         _SEED_PASSWORD,
         now=now,
-        new_id=_seed_id(f"identity:{email}"),
+        new_id=new_id,
     )
     return identity.id
 
@@ -150,9 +179,12 @@ def _ensure_person(
     display_name: str,
     profile_type: ProfileType,
     now: datetime,
+    new_id: UUID,
 ) -> UUID:
     """Ensure an identity and its single active profile; return the identity id."""
-    identity_id = _ensure_identity(identity_repo, email=email, display_name=display_name, now=now)
+    identity_id = _ensure_identity(
+        identity_repo, email=email, display_name=display_name, now=now, new_id=new_id
+    )
     _ensure_profile(profile_repo, identity_id=identity_id, profile_type=profile_type)
     return identity_id
 
@@ -160,16 +192,16 @@ def _ensure_person(
 def _ensure_org(
     repo: SqlAlchemyOrganizationRepository,
     *,
-    slug: str,
+    org_id: UUID,
     name: str,
     org_type: OrgType,
     now: datetime,
 ) -> UUID:
-    """Return the org id for ``slug``, creating it once if absent.
+    """Return the org id, creating it once if absent.
 
-    Gate: ``get_by_id`` on the deterministic uuid5 id (there is no get-by-name).
+    Gate: ``get_by_id`` on the deterministic uuid5 id (supplied by ``world_ids()``;
+    there is no get-by-name).
     """
-    org_id = _seed_id(f"org:{slug}")
     if repo.get_by_id(org_id) is not None:
         return org_id
     create_organization(repo, name, org_type, now=now, new_id=org_id)
@@ -209,7 +241,7 @@ def _ensure_admin_membership(
 def _ensure_episode(
     repo: SqlAlchemyEpisodeRepository,
     *,
-    slug: str,
+    episode_id: UUID,
     client_id: UUID,
     reason: str,
     managing_org_id: UUID,
@@ -217,13 +249,12 @@ def _ensure_episode(
     responsible_role: Role,
     now: datetime,
 ) -> Episode:
-    """Return the episode for ``slug``, opening it once if absent.
+    """Return the episode for the deterministic ``episode_id``, opening it once if absent.
 
-    Gate: ``get_episode`` on the deterministic uuid5 id - which reconstitutes ALL
-    child rows (incl. future-dated memberships), so the returned aggregate feeds
-    the member gates correctly on a re-run.
+    Gate: ``get_episode`` on the deterministic uuid5 id (supplied by ``world_ids()``)
+    - which reconstitutes ALL child rows (incl. future-dated memberships), so the
+    returned aggregate feeds the member gates correctly on a re-run.
     """
-    episode_id = _seed_id(f"episode:{slug}")
     existing = get_episode(repo, episode_id)
     if existing is not None:
         return existing
@@ -287,6 +318,11 @@ def seed(session: Session, *, now: datetime = SEED_EPOCH) -> SaraWorld:
     membership_repo = SqlAlchemyOrgStaffMembershipRepository(session)
     episode_repo = SqlAlchemyEpisodeRepository(session)
 
+    # The deterministic top-level ids, computed DB-free. seed() threads them in as
+    # its new_ids, so what it persists is exactly what world_ids() returns (the
+    # drift test asserts the equality).
+    ids = world_ids()
+
     # 1-6: people (identity + single active profile each).
     sara = _ensure_person(
         identity_repo,
@@ -295,6 +331,7 @@ def seed(session: Session, *, now: datetime = SEED_EPOCH) -> SaraWorld:
         display_name="Sara Client",
         profile_type=ProfileType.CLIENT,
         now=now,
+        new_id=ids.sara,
     )
     mike = _ensure_person(
         identity_repo,
@@ -303,6 +340,7 @@ def seed(session: Session, *, now: datetime = SEED_EPOCH) -> SaraWorld:
         display_name="Mike Trainer",
         profile_type=ProfileType.PROVIDER,
         now=now,
+        new_id=ids.mike,
     )
     khan = _ensure_person(
         identity_repo,
@@ -311,6 +349,7 @@ def seed(session: Session, *, now: datetime = SEED_EPOCH) -> SaraWorld:
         display_name="Dr Khan",
         profile_type=ProfileType.PROVIDER,
         now=now,
+        new_id=ids.khan,
     )
     patel = _ensure_person(
         identity_repo,
@@ -319,6 +358,7 @@ def seed(session: Session, *, now: datetime = SEED_EPOCH) -> SaraWorld:
         display_name="Dr Patel",
         profile_type=ProfileType.PROVIDER,
         now=now,
+        new_id=ids.patel,
     )
     lee = _ensure_person(
         identity_repo,
@@ -327,6 +367,7 @@ def seed(session: Session, *, now: datetime = SEED_EPOCH) -> SaraWorld:
         display_name="Dr Lee",
         profile_type=ProfileType.PROVIDER,
         now=now,
+        new_id=ids.lee,
     )
     org_admin = _ensure_person(
         identity_repo,
@@ -335,13 +376,14 @@ def seed(session: Session, *, now: datetime = SEED_EPOCH) -> SaraWorld:
         display_name="Olivia Admin",
         profile_type=ProfileType.ORG_STAFF,
         now=now,
+        new_id=ids.org_admin,
     )
 
     # 7-8: organizations (Khan Solo Practice is deliberately staffless).
-    fitgym = _ensure_org(org_repo, slug="fitgym", name="FitGym", org_type=OrgType.GYM, now=now)
+    fitgym = _ensure_org(org_repo, org_id=ids.fitgym, name="FitGym", org_type=OrgType.GYM, now=now)
     khan_solo = _ensure_org(
         org_repo,
-        slug="khan_solo",
+        org_id=ids.khan_solo,
         name="Khan Solo Practice",
         org_type=OrgType.SOLO_PRACTICE,
         now=now,
@@ -353,7 +395,7 @@ def seed(session: Session, *, now: datetime = SEED_EPOCH) -> SaraWorld:
     # 10: General Training (FitGym), Mike responsible -> member+responsible+face.
     general = _ensure_episode(
         episode_repo,
-        slug="general_training",
+        episode_id=ids.general,
         client_id=sara,
         reason="general_training",
         managing_org_id=fitgym,
@@ -365,7 +407,7 @@ def seed(session: Session, *, now: datetime = SEED_EPOCH) -> SaraWorld:
     # 11: Shoulder Rehab (Khan Solo Practice), Khan responsible; Patel open, Lee bounded.
     shoulder = _ensure_episode(
         episode_repo,
-        slug="shoulder_rehab",
+        episode_id=ids.shoulder,
         client_id=sara,
         reason="shoulder_rehab",
         managing_org_id=khan_solo,
@@ -392,6 +434,27 @@ def seed(session: Session, *, now: datetime = SEED_EPOCH) -> SaraWorld:
         effective_to=now + _COVERAGE_TO,
     )
 
+    # 12: Prior Rehab (Khan Solo Practice), Khan responsible + face, opened then CLOSED.
+    # A previous, now-discharged rehab: it lets the /demo page replay scenario S4 (a
+    # closed episode still serves reads to its team, but the PDP suppresses every act).
+    # Idempotent in two steps: _ensure_episode gates the OPEN on the deterministic id,
+    # and the close is gated on is_active so a re-run (already closed) closes nothing
+    # and writes no row. Closing at ``now`` (== opened_at) is valid: Episode.close only
+    # guards that the episode is still open, never that closed_at is strictly later, and
+    # it leaves the append-only roster rows open as surviving history.
+    closed = _ensure_episode(
+        episode_repo,
+        episode_id=ids.closed,
+        client_id=sara,
+        reason="prior_rehab",
+        managing_org_id=khan_solo,
+        responsible_provider_id=khan,
+        responsible_role=Role.PHYSIOTHERAPIST,
+        now=now,
+    )
+    if closed.is_active:
+        closed = close_episode(episode_repo, closed, now=now)
+
     return SaraWorld(
         sara=sara,
         mike=mike,
@@ -403,6 +466,7 @@ def seed(session: Session, *, now: datetime = SEED_EPOCH) -> SaraWorld:
         khan_solo=khan_solo,
         general=general.id,
         shoulder=shoulder.id,
+        closed=closed.id,
     )
 
 
