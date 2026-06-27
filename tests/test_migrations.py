@@ -23,7 +23,8 @@ _EXTENSIONS = ("pgcrypto", "btree_gist", "citext")
 
 def test_alembic_config_loads_and_revision_chain(alembic_cfg: Config) -> None:
     script = ScriptDirectory.from_config(alembic_cfg)
-    assert script.get_current_head() == "0005"
+    assert script.get_current_head() == "0006"
+    assert script.get_revision("0006").down_revision == "0005"
     assert script.get_revision("0005").down_revision == "0004"
     assert script.get_revision("0004").down_revision == "0003"
     assert script.get_revision("0003").down_revision == "0002"
@@ -43,7 +44,7 @@ def test_extensions_created_by_migration(db_engine: Engine) -> None:
         extensions = set(conn.scalars(text("SELECT extname FROM pg_extension")).all())
         version = conn.scalar(text("SELECT version_num FROM alembic_version"))
     assert set(_EXTENSIONS) <= extensions
-    assert version == "0005"
+    assert version == "0006"
 
 
 def test_identities_table_created(db_engine: Engine) -> None:
@@ -66,7 +67,7 @@ def test_identities_table_created(db_engine: Engine) -> None:
         version = conn.scalar(text("SELECT version_num FROM alembic_version"))
     columns = {row[0]: (row[1], row[2]) for row in rows}
     assert set(columns) == expected_columns
-    assert version == "0005"
+    assert version == "0006"
     # CITEXT email + TIMESTAMPTZ created_at (citext reports as a USER-DEFINED type
     # whose udt_name is 'citext'); these guard case-insensitivity + the naive trap.
     assert columns["email"][1] == "citext"
@@ -128,7 +129,7 @@ def test_organization_tables_created(db_engine: Engine) -> None:
         "fk_org_staff_memberships_identity_id_identities",
         "fk_org_staff_memberships_org_id_organizations",
     } <= constraints
-    assert version == "0005"
+    assert version == "0006"
 
 
 def test_profiles_table_created(db_engine: Engine) -> None:
@@ -158,7 +159,7 @@ def test_profiles_table_created(db_engine: Engine) -> None:
         "ck_profiles_profile_type",
         "fk_profiles_identity_id_identities",
     } <= constraints
-    assert version == "0005"
+    assert version == "0006"
 
 
 def _columns(conn: Connection, table: str) -> dict[str, str]:
@@ -258,7 +259,41 @@ def test_care_tables_created(db_engine: Engine) -> None:
     } <= constraints
     # The two temporal no-overlap EXCLUDE constraints (one holder per instant).
     assert exclude_names == {"responsibility_assignments_no_overlap", "booking_contacts_no_overlap"}
-    assert version == "0005"
+    assert version == "0006"
+
+
+def test_clinical_tables_created(db_engine: Engine) -> None:
+    # The two episode-scoped clinical resources. Unlike the effective-dated care
+    # child tables these are write-once event rows: each carries a TIMESTAMPTZ
+    # ``created_at`` (wall-clock authoring time), not a business-effective window.
+    expected_columns = {"id", "episode_id", "author_provider_id", "body", "created_at"}
+    with db_engine.connect() as conn:
+        clinical = _columns(conn, "clinical_records")
+        rehab = _columns(conn, "rehab_assessments")
+        constraints = set(
+            conn.scalars(
+                text(
+                    "SELECT constraint_name FROM information_schema.table_constraints "
+                    "WHERE table_name IN ('clinical_records', 'rehab_assessments')"
+                )
+            ).all()
+        )
+        version = conn.scalar(text("SELECT version_num FROM alembic_version"))
+    assert set(clinical) == expected_columns
+    assert set(rehab) == expected_columns
+    # The authoring timestamp is TIMESTAMPTZ (the naive-read trap the records reject).
+    assert clinical["created_at"] == "timestamp with time zone"
+    assert rehab["created_at"] == "timestamp with time zone"
+    # PK / FK names land via the naming convention (one PK + two FKs per table).
+    assert {
+        "pk_clinical_records",
+        "fk_clinical_records_episode_id_episodes",
+        "fk_clinical_records_author_provider_id_identities",
+        "pk_rehab_assessments",
+        "fk_rehab_assessments_episode_id_episodes",
+        "fk_rehab_assessments_author_provider_id_identities",
+    } <= constraints
+    assert version == "0006"
 
 
 def test_upgrade_offline_emits_create_extension(

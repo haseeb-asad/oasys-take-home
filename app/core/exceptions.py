@@ -28,3 +28,15 @@ class NotAuthenticated(DomainError):
 
     def __init__(self, detail: str = "Could not validate credentials.") -> None:
         super().__init__(detail)
+
+
+class NotFound(DomainError):
+    """A requested resource does not exist (mapped centrally to HTTP 404).
+
+    Cross-cutting like ``NotAuthenticated``: existence is not owned by a single
+    bounded context, so the shared kernel is its home. The message is deliberately
+    GENERIC (it names no id) so a 404 reveals nothing beyond "absent".
+    """
+
+    def __init__(self, detail: str = "The requested resource was not found.") -> None:
+        super().__init__(detail)

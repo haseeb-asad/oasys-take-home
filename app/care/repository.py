@@ -33,17 +33,24 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.care.domain.clinical import ClinicalRecord, RehabAssessment
 from app.care.domain.episode import Episode, _EffectiveDatedRow
 from app.care.orm import (
     BookingContactModel,
+    ClinicalRecordModel,
     EpisodeMembershipModel,
     EpisodeModel,
+    RehabAssessmentModel,
     ResponsibilityAssignmentModel,
     _booking_contact_to_model,
     _CareChildModel,
+    _clinical_record_to_domain,
+    _clinical_record_to_model,
     _episode_to_domain,
     _episode_to_model,
     _membership_to_model,
+    _rehab_assessment_to_domain,
+    _rehab_assessment_to_model,
     _responsibility_to_model,
 )
 
@@ -147,3 +154,55 @@ class SqlAlchemyEpisodeRepository:
                 model.effective_to = row.period.effective_to
                 model.change_reason = row.change_reason
         return new_models
+
+
+class SqlAlchemyClinicalRecordRepository:
+    """Reads and stores write-once clinical records against ``clinical_records``.
+
+    ``add`` is a plain ``session.add(...) ; session.flush()`` (no SAVEPOINT, no
+    typed-error translation): a record has no unique business key, so a
+    foreign-key violation surfaces as a raw ``IntegrityError`` (the caller / test
+    treats it as terminal, and the per-request rollback recovers). The ``flush``
+    forces the INSERT to hit the database inside ``add`` even under the harness's
+    ``autoflush=False`` session. ``list_for_episode`` reads every record for the
+    episode ordered by ``created_at`` with NO access filter: the PDP gates at the
+    router.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def add(self, record: ClinicalRecord) -> None:
+        self._session.add(_clinical_record_to_model(record))
+        self._session.flush()
+
+    def list_for_episode(self, episode_id: UUID) -> list[ClinicalRecord]:
+        models = self._session.scalars(
+            select(ClinicalRecordModel)
+            .where(ClinicalRecordModel.episode_id == episode_id)
+            .order_by(ClinicalRecordModel.created_at)
+        ).all()
+        return [_clinical_record_to_domain(model) for model in models]
+
+
+class SqlAlchemyRehabAssessmentRepository:
+    """Reads and stores write-once rehab assessments against ``rehab_assessments``.
+
+    Same contract as ``SqlAlchemyClinicalRecordRepository`` (plain add+flush,
+    episode-scoped ``created_at``-ordered read, no policy filter).
+    """
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def add(self, assessment: RehabAssessment) -> None:
+        self._session.add(_rehab_assessment_to_model(assessment))
+        self._session.flush()
+
+    def list_for_episode(self, episode_id: UUID) -> list[RehabAssessment]:
+        models = self._session.scalars(
+            select(RehabAssessmentModel)
+            .where(RehabAssessmentModel.episode_id == episode_id)
+            .order_by(RehabAssessmentModel.created_at)
+        ).all()
+        return [_rehab_assessment_to_domain(model) for model in models]
