@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.authz import ActorContext, Capability, Forbidden, ProfileType, ResourceRef
+from app.authz.exceptions import ProfileSurfaceRequired
 from app.care.domain.exceptions import (
     EpisodeClosed,
     NotACurrentMember,
@@ -21,7 +22,7 @@ from app.care.domain.exceptions import (
     SelfTreatment,
 )
 from app.core.errors import _DOMAIN_STATUS, register_exception_handlers
-from app.core.exceptions import NotAuthenticated
+from app.core.exceptions import NotAuthenticated, NotFound
 from app.identity.domain.exceptions import EmailAlreadyRegistered
 
 _ID = UUID(int=7)
@@ -60,6 +61,14 @@ def _client() -> TestClient:
         actor = ActorContext(identity_id=_ID, profile_type=ProfileType.PROVIDER)
         raise Forbidden(actor, Capability.WRITE_CLINICAL, ResourceRef.for_client(_ID))
 
+    @app.get("/not-found")
+    def _nf() -> None:
+        raise NotFound()
+
+    @app.get("/wrong-surface")
+    def _ws() -> None:
+        raise ProfileSurfaceRequired()
+
     @app.get("/value-error")
     def _ve() -> None:
         raise ValueError("bad input")
@@ -76,6 +85,8 @@ def _client() -> TestClient:
     [
         ("/not-authenticated", 401),
         ("/forbidden", 403),
+        ("/not-found", 404),
+        ("/wrong-surface", 403),
         ("/self-treatment", 422),
         ("/not-member", 422),
         ("/closed", 409),
@@ -106,6 +117,14 @@ def test_not_authenticated_mapped_to_401() -> None:
 
 def test_email_already_registered_mapped_to_409() -> None:
     assert _DOMAIN_STATUS[EmailAlreadyRegistered] == 409
+
+
+def test_not_found_mapped_to_404() -> None:
+    assert _DOMAIN_STATUS[NotFound] == 404
+
+
+def test_profile_surface_required_mapped_to_403() -> None:
+    assert _DOMAIN_STATUS[ProfileSurfaceRequired] == 403
 
 
 def test_401_response_carries_www_authenticate_challenge() -> None:

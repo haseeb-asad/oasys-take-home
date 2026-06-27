@@ -8,6 +8,7 @@ from uuid import UUID
 
 import pytest
 
+from app.care.domain.clinical import ClinicalRecord, RehabAssessment
 from app.care.domain.episode import Episode
 from app.care.domain.value_objects import Role
 
@@ -33,6 +34,32 @@ class FakeEpisodeRepository:
 
     def save(self, episode: Episode) -> None:
         self.episodes[episode.id] = episode
+
+
+@dataclass(slots=True)
+class FakeClinicalRecordRepository:
+    """In-memory ``ClinicalRecordRepository`` (append + episode-scoped list, no DB)."""
+
+    records: list[ClinicalRecord] = field(default_factory=list)
+
+    def add(self, record: ClinicalRecord) -> None:
+        self.records.append(record)
+
+    def list_for_episode(self, episode_id: UUID) -> list[ClinicalRecord]:
+        return [r for r in self.records if r.episode_id == episode_id]
+
+
+@dataclass(slots=True)
+class FakeRehabAssessmentRepository:
+    """In-memory ``RehabAssessmentRepository`` (append + episode-scoped list, no DB)."""
+
+    assessments: list[RehabAssessment] = field(default_factory=list)
+
+    def add(self, assessment: RehabAssessment) -> None:
+        self.assessments.append(assessment)
+
+    def list_for_episode(self, episode_id: UUID) -> list[RehabAssessment]:
+        return [a for a in self.assessments if a.episode_id == episode_id]
 
 
 # Stable identities used across the suite.

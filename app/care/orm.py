@@ -33,6 +33,7 @@ from uuid import UUID
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.care.domain.clinical import ClinicalRecord, RehabAssessment
 from app.care.domain.episode import (
     BookingContact,
     Episode,
@@ -124,6 +125,39 @@ class BookingContactModel(_CareChildModel):
 
     __tablename__ = "booking_contacts"
     __table_args__ = (CheckConstraint(_PERIOD_CHECK, name="period"),)
+
+
+class _ClinicalEventModel(Base):
+    """Shared columns for the two write-once, episode-scoped clinical event tables.
+
+    Abstract (no table of its own): each concrete subclass is its own tiny
+    aggregate root (``clinical_records`` / ``rehab_assessments``). Unlike the
+    effective-dated care child tables these carry a ``created_at`` (TIMESTAMPTZ
+    authoring time, the row IS the event) and no effective window / role / CHECK.
+    The naming convention resolves every PK/FK name per concrete table.
+    """
+
+    __abstract__ = True
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
+    episode_id: Mapped[UUID] = mapped_column(ForeignKey("episodes.id"), nullable=False)
+    author_provider_id: Mapped[UUID] = mapped_column(ForeignKey("identities.id"), nullable=False)
+    body: Mapped[str] = mapped_column(Text(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class ClinicalRecordModel(_ClinicalEventModel):
+    """The ``clinical_records`` table: a write-once clinical note on an episode."""
+
+    __tablename__ = "clinical_records"
+
+
+class RehabAssessmentModel(_ClinicalEventModel):
+    """The ``rehab_assessments`` table: a write-once rehab assessment on an episode."""
+
+    __tablename__ = "rehab_assessments"
 
 
 # --- Root mappers -----------------------------------------------------------
@@ -232,4 +266,47 @@ def _episode_to_domain(
         memberships=[_membership_to_domain(m) for m in membership_models],
         responsibility=[_responsibility_to_domain(r) for r in responsibility_models],
         faces=[_booking_contact_to_domain(f) for f in face_models],
+    )
+
+
+# --- Clinical event mappers (own aggregates; no episode injection needed) ----
+
+
+def _clinical_record_to_model(record: ClinicalRecord) -> ClinicalRecordModel:
+    return ClinicalRecordModel(
+        id=record.id,
+        episode_id=record.episode_id,
+        author_provider_id=record.author_provider_id,
+        body=record.body,
+        created_at=record.created_at,
+    )
+
+
+def _clinical_record_to_domain(model: ClinicalRecordModel) -> ClinicalRecord:
+    return ClinicalRecord(
+        id=model.id,
+        episode_id=model.episode_id,
+        author_provider_id=model.author_provider_id,
+        body=model.body,
+        created_at=model.created_at,
+    )
+
+
+def _rehab_assessment_to_model(assessment: RehabAssessment) -> RehabAssessmentModel:
+    return RehabAssessmentModel(
+        id=assessment.id,
+        episode_id=assessment.episode_id,
+        author_provider_id=assessment.author_provider_id,
+        body=assessment.body,
+        created_at=assessment.created_at,
+    )
+
+
+def _rehab_assessment_to_domain(model: RehabAssessmentModel) -> RehabAssessment:
+    return RehabAssessment(
+        id=model.id,
+        episode_id=model.episode_id,
+        author_provider_id=model.author_provider_id,
+        body=model.body,
+        created_at=model.created_at,
     )

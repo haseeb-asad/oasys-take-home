@@ -18,14 +18,14 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.authz.exceptions import Forbidden
+from app.authz.exceptions import Forbidden, ProfileSurfaceRequired
 from app.care.domain.exceptions import (
     EpisodeClosed,
     NotACurrentMember,
     OverlappingPeriod,
     SelfTreatment,
 )
-from app.core.exceptions import DomainError, NotAuthenticated
+from app.core.exceptions import DomainError, NotAuthenticated, NotFound
 from app.identity.domain.exceptions import EmailAlreadyRegistered
 
 logger = logging.getLogger("kinetic")
@@ -33,8 +33,10 @@ logger = logging.getLogger("kinetic")
 # {domain exception -> HTTP status}: the auth-design table, single home.
 _DOMAIN_STATUS: dict[type[Exception], int] = {
     NotAuthenticated: 401,
+    NotFound: 404,
     EmailAlreadyRegistered: 409,
     Forbidden: 403,
+    ProfileSurfaceRequired: 403,
     SelfTreatment: 422,
     NotACurrentMember: 422,
     EpisodeClosed: 409,
