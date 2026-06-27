@@ -18,6 +18,7 @@ from sqlalchemy import create_engine, pool
 from app.core.config import get_settings
 from app.core.database import Base
 from app.identity import orm  # noqa: F401  (registers identities on Base.metadata)
+from app.organization import orm as organization_orm  # noqa: F401  (registers org tables)
 
 config = context.config
 if config.config_file_name is not None:

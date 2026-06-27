@@ -23,7 +23,8 @@ _EXTENSIONS = ("pgcrypto", "btree_gist", "citext")
 
 def test_alembic_config_loads_and_revision_chain(alembic_cfg: Config) -> None:
     script = ScriptDirectory.from_config(alembic_cfg)
-    assert script.get_current_head() == "0002"
+    assert script.get_current_head() == "0003"
+    assert script.get_revision("0003").down_revision == "0002"
     assert script.get_revision("0002").down_revision == "0001"
     assert script.get_revision("0001").down_revision is None
 
@@ -40,7 +41,7 @@ def test_extensions_created_by_migration(db_engine: Engine) -> None:
         extensions = set(conn.scalars(text("SELECT extname FROM pg_extension")).all())
         version = conn.scalar(text("SELECT version_num FROM alembic_version"))
     assert set(_EXTENSIONS) <= extensions
-    assert version == "0002"
+    assert version == "0003"
 
 
 def test_identities_table_created(db_engine: Engine) -> None:
@@ -63,12 +64,69 @@ def test_identities_table_created(db_engine: Engine) -> None:
         version = conn.scalar(text("SELECT version_num FROM alembic_version"))
     columns = {row[0]: (row[1], row[2]) for row in rows}
     assert set(columns) == expected_columns
-    assert version == "0002"
+    assert version == "0003"
     # CITEXT email + TIMESTAMPTZ created_at (citext reports as a USER-DEFINED type
     # whose udt_name is 'citext'); these guard case-insensitivity + the naive trap.
     assert columns["email"][1] == "citext"
     assert columns["created_at"][0] == "timestamp with time zone"
     assert "uq_identities_email" in constraints
+
+
+def test_organization_tables_created(db_engine: Engine) -> None:
+    org_columns_expected = {"id", "name", "type", "created_at"}
+    membership_columns_expected = {
+        "id",
+        "identity_id",
+        "org_id",
+        "role",
+        "effective_from",
+        "effective_to",
+    }
+    with db_engine.connect() as conn:
+        # AM5: query each table separately so the column->type maps cannot collide
+        # on the shared ``id`` (and the "no created_at on memberships" check stays
+        # meaningful).
+        org_rows = conn.execute(
+            text(
+                "SELECT column_name, data_type FROM information_schema.columns "
+                "WHERE table_name = 'organizations'"
+            )
+        ).all()
+        membership_rows = conn.execute(
+            text(
+                "SELECT column_name, data_type FROM information_schema.columns "
+                "WHERE table_name = 'org_staff_memberships'"
+            )
+        ).all()
+        constraints = set(
+            conn.scalars(
+                text(
+                    "SELECT constraint_name FROM information_schema.table_constraints "
+                    "WHERE table_name IN ('organizations', 'org_staff_memberships')"
+                )
+            ).all()
+        )
+        version = conn.scalar(text("SELECT version_num FROM alembic_version"))
+    org_columns = {row[0]: row[1] for row in org_rows}
+    membership_columns = {row[0]: row[1] for row in membership_rows}
+    assert set(org_columns) == org_columns_expected
+    assert set(membership_columns) == membership_columns_expected
+    # Append-only effective-dated rows carry only business time: no created_at.
+    assert "created_at" not in membership_columns
+    # Every timestamp is TIMESTAMPTZ (the naive-read trap the pure entities reject).
+    assert org_columns["created_at"] == "timestamp with time zone"
+    assert membership_columns["effective_from"] == "timestamp with time zone"
+    assert membership_columns["effective_to"] == "timestamp with time zone"
+    # AM1: all six convention-resolved constraint names land in the database.
+    assert {
+        "pk_organizations",
+        "ck_organizations_type",
+        "pk_org_staff_memberships",
+        "ck_org_staff_memberships_role",
+        "fk_org_staff_memberships_identity_id_identities",
+        "fk_org_staff_memberships_org_id_organizations",
+    } <= constraints
+    assert version == "0003"
 
 
 def test_upgrade_offline_emits_create_extension(
