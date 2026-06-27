@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from app.core.security import hash_password
-from app.identity.domain.entities import Identity
+from app.identity.domain.entities import Identity, Profile
 from app.identity.domain.exceptions import EmailAlreadyRegistered
 
 _IDENTITY_ID = UUID(int=1)
@@ -49,3 +49,22 @@ class FakeIdentityRepository:
             raise EmailAlreadyRegistered(identity.email)
         self.by_email[identity.email.lower()] = identity
         self.by_id[identity.id] = identity
+
+
+@dataclass(slots=True)
+class FakeProfileRepository:
+    """In-memory ``ProfileRepository`` adapter backed by a list (no DB).
+
+    Structurally satisfies the ``ProfileRepository`` port; ``list_for`` returns
+    ALL rows for an identity (active and discarded), so the activeness decision is
+    the domain's / service's alone (mirrors the SQLAlchemy adapter's no-filter
+    read). Append-only, like the real table.
+    """
+
+    profiles: list[Profile] = field(default_factory=list)
+
+    def list_for(self, identity_id: UUID) -> list[Profile]:
+        return [profile for profile in self.profiles if profile.identity_id == identity_id]
+
+    def add(self, profile: Profile) -> None:
+        self.profiles.append(profile)

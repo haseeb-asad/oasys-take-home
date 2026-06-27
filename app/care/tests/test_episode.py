@@ -682,6 +682,145 @@ class TestLifecycleIntegration:
         assert ra is not None and ra.provider_id == PROVIDER_B
 
 
+class TestReconstitute:
+    """``Episode.reconstitute`` rebuilds the aggregate from persisted rows.
+
+    It is additive and pure: it must populate the three child collections,
+    preserve status/closed_at, let the "current" derivations work, and - crucially
+    - NOT re-run mutator invariants, so historical closed/reassigned rows load
+    without raising (the repository depends on this on every ``get``).
+    """
+
+    def _reassigned_closed_episode(self) -> Episode:
+        # A history with a contiguous responsibility handoff A -> B and a closed
+        # episode: exactly the shape a real reassign-then-close run persists.
+        memberships = [
+            Membership(
+                provider_id=PROVIDER_A,
+                period=EffectivePeriod(at(0), None),
+                change_reason="opened",
+                role=Role.PHYSIOTHERAPIST,
+            ),
+            Membership(
+                provider_id=PROVIDER_B,
+                period=EffectivePeriod(at(1), None),
+                change_reason="added",
+                role=Role.PHYSICIAN,
+            ),
+        ]
+        responsibility = [
+            Responsibility(
+                provider_id=PROVIDER_A,
+                period=EffectivePeriod(at(0), at(2)),
+                change_reason="opened",
+            ),
+            Responsibility(
+                provider_id=PROVIDER_B,
+                period=EffectivePeriod(at(2), None),
+                change_reason="handoff",
+            ),
+        ]
+        faces = [
+            BookingContact(
+                provider_id=PROVIDER_A,
+                period=EffectivePeriod(at(0), None),
+                change_reason="opened",
+            ),
+        ]
+        return Episode.reconstitute(
+            id=EPISODE_ID,
+            client_id=CLIENT,
+            reason="shoulder_rehab",
+            managing_org_id=ORG_ID,
+            opened_at=at(0),
+            status=EpisodeStatus.CLOSED,
+            closed_at=at(3),
+            memberships=memberships,
+            responsibility=responsibility,
+            faces=faces,
+        )
+
+    def test_populates_collections(self) -> None:
+        episode = self._reassigned_closed_episode()
+        assert len(episode.memberships) == 2
+        assert len(episode.responsibility) == 2
+        assert len(episode.faces) == 1
+
+    def test_preserves_root_fields(self) -> None:
+        episode = self._reassigned_closed_episode()
+        assert episode.id == EPISODE_ID
+        assert episode.client_id == CLIENT
+        assert episode.reason == "shoulder_rehab"
+        assert episode.managing_org_id == ORG_ID
+        assert episode.opened_at == at(0)
+        assert episode.status is EpisodeStatus.CLOSED
+        assert episode.is_active is False
+        assert episode.closed_at == at(3)
+
+    def test_current_derivations_work(self) -> None:
+        episode = self._reassigned_closed_episode()
+        # The handoff boundary at(2) resolves to the new (half-open) holder.
+        before = episode.current_responsibility(at(1))
+        after = episode.current_responsibility(at(2))
+        assert before is not None and before.provider_id == PROVIDER_A
+        assert after is not None and after.provider_id == PROVIDER_B
+        assert episode.is_current_member(PROVIDER_B, at(2)) is True
+        face = episode.current_face(at(1))
+        assert face is not None and face.provider_id == PROVIDER_A
+
+    def test_does_not_rerun_invariants(self) -> None:
+        # No exception despite a closed episode + a contiguous-but-historical
+        # reassignment: reconstitute assigns the private lists directly, running
+        # neither the closed-guard nor the no-overlap assertion.
+        episode = self._reassigned_closed_episode()
+        assert episode.status is EpisodeStatus.CLOSED
+
+    def test_reconstituted_closed_episode_is_immutable(self) -> None:
+        episode = self._reassigned_closed_episode()
+        with pytest.raises(EpisodeClosed):
+            episode.add_member(
+                provider_id=PROVIDER_C, role=Role.PHYSICIAN, now=at(4), change_reason="late"
+            )
+
+    def test_reconstitute_active_episode_remains_mutable(self) -> None:
+        episode = Episode.reconstitute(
+            id=EPISODE_ID,
+            client_id=CLIENT,
+            reason="shoulder_rehab",
+            managing_org_id=ORG_ID,
+            opened_at=at(0),
+            status=EpisodeStatus.ACTIVE,
+            closed_at=None,
+            memberships=[
+                Membership(
+                    provider_id=PROVIDER_A,
+                    period=EffectivePeriod(at(0), None),
+                    change_reason="opened",
+                    role=Role.PHYSIOTHERAPIST,
+                )
+            ],
+            responsibility=[
+                Responsibility(
+                    provider_id=PROVIDER_A,
+                    period=EffectivePeriod(at(0), None),
+                    change_reason="opened",
+                )
+            ],
+            faces=[
+                BookingContact(
+                    provider_id=PROVIDER_A,
+                    period=EffectivePeriod(at(0), None),
+                    change_reason="opened",
+                )
+            ],
+        )
+        # A still-active reconstituted episode accepts further mutation.
+        episode.add_member(
+            provider_id=PROVIDER_B, role=Role.PHYSICIAN, now=at(1), change_reason="b"
+        )
+        assert episode.is_current_member(PROVIDER_B, at(1)) is True
+
+
 class TestDefensiveOverlapGuard:
     """Directly exercise the belt-and-braces no-overlap assertion.
 

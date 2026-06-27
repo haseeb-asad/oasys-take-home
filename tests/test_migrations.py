@@ -15,7 +15,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from sqlalchemy import Engine, text
+from sqlalchemy import Connection, Engine, text
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _EXTENSIONS = ("pgcrypto", "btree_gist", "citext")
@@ -23,7 +23,9 @@ _EXTENSIONS = ("pgcrypto", "btree_gist", "citext")
 
 def test_alembic_config_loads_and_revision_chain(alembic_cfg: Config) -> None:
     script = ScriptDirectory.from_config(alembic_cfg)
-    assert script.get_current_head() == "0003"
+    assert script.get_current_head() == "0005"
+    assert script.get_revision("0005").down_revision == "0004"
+    assert script.get_revision("0004").down_revision == "0003"
     assert script.get_revision("0003").down_revision == "0002"
     assert script.get_revision("0002").down_revision == "0001"
     assert script.get_revision("0001").down_revision is None
@@ -41,7 +43,7 @@ def test_extensions_created_by_migration(db_engine: Engine) -> None:
         extensions = set(conn.scalars(text("SELECT extname FROM pg_extension")).all())
         version = conn.scalar(text("SELECT version_num FROM alembic_version"))
     assert set(_EXTENSIONS) <= extensions
-    assert version == "0003"
+    assert version == "0005"
 
 
 def test_identities_table_created(db_engine: Engine) -> None:
@@ -64,7 +66,7 @@ def test_identities_table_created(db_engine: Engine) -> None:
         version = conn.scalar(text("SELECT version_num FROM alembic_version"))
     columns = {row[0]: (row[1], row[2]) for row in rows}
     assert set(columns) == expected_columns
-    assert version == "0003"
+    assert version == "0005"
     # CITEXT email + TIMESTAMPTZ created_at (citext reports as a USER-DEFINED type
     # whose udt_name is 'citext'); these guard case-insensitivity + the naive trap.
     assert columns["email"][1] == "citext"
@@ -126,7 +128,137 @@ def test_organization_tables_created(db_engine: Engine) -> None:
         "fk_org_staff_memberships_identity_id_identities",
         "fk_org_staff_memberships_org_id_organizations",
     } <= constraints
-    assert version == "0003"
+    assert version == "0005"
+
+
+def test_profiles_table_created(db_engine: Engine) -> None:
+    expected_columns = {"id", "identity_id", "profile_type", "discarded_at"}
+    with db_engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT column_name, data_type FROM information_schema.columns "
+                "WHERE table_name = 'profiles'"
+            )
+        ).all()
+        constraints = set(
+            conn.scalars(
+                text(
+                    "SELECT constraint_name FROM information_schema.table_constraints "
+                    "WHERE table_name = 'profiles'"
+                )
+            ).all()
+        )
+        version = conn.scalar(text("SELECT version_num FROM alembic_version"))
+    columns = {row[0]: row[1] for row in rows}
+    assert set(columns) == expected_columns
+    # Soft-discard tombstone is TIMESTAMPTZ (the naive-read trap the entity rejects).
+    assert columns["discarded_at"] == "timestamp with time zone"
+    assert {
+        "pk_profiles",
+        "ck_profiles_profile_type",
+        "fk_profiles_identity_id_identities",
+    } <= constraints
+    assert version == "0005"
+
+
+def _columns(conn: Connection, table: str) -> dict[str, str]:
+    return {
+        row[0]: row[1]
+        for row in conn.execute(
+            text(
+                "SELECT column_name, data_type FROM information_schema.columns "
+                "WHERE table_name = :table"
+            ),
+            {"table": table},
+        ).all()
+    }
+
+
+def test_care_tables_created(db_engine: Engine) -> None:
+    # Per-table column queries (not one IN-list) so the shared ``id`` cannot make
+    # the column->type maps collide and the "no created_at on children" check stay
+    # meaningful.
+    episodes_expected = {
+        "id",
+        "client_id",
+        "reason",
+        "status",
+        "managing_org_id",
+        "opened_at",
+        "closed_at",
+    }
+    child_expected = {
+        "id",
+        "episode_id",
+        "provider_id",
+        "effective_from",
+        "effective_to",
+        "change_reason",
+    }
+    with db_engine.connect() as conn:
+        episodes = _columns(conn, "episodes")
+        memberships = _columns(conn, "episode_memberships")
+        responsibility = _columns(conn, "responsibility_assignments")
+        booking = _columns(conn, "booking_contacts")
+        constraints = set(
+            conn.scalars(
+                text(
+                    "SELECT constraint_name FROM information_schema.table_constraints "
+                    "WHERE table_name IN "
+                    "('episodes', 'episode_memberships', "
+                    "'responsibility_assignments', 'booking_contacts')"
+                )
+            ).all()
+        )
+        # information_schema omits EXCLUDE constraints; read them from pg_constraint
+        # by their relation + contype 'x'.
+        exclude_names = set(
+            conn.scalars(
+                text(
+                    "SELECT conname FROM pg_constraint "
+                    "WHERE contype = 'x' AND conrelid::regclass::text IN "
+                    "('responsibility_assignments', 'booking_contacts')"
+                )
+            ).all()
+        )
+        version = conn.scalar(text("SELECT version_num FROM alembic_version"))
+    assert set(episodes) == episodes_expected
+    assert set(memberships) == child_expected | {"role"}
+    assert set(responsibility) == child_expected
+    assert set(booking) == child_expected
+    # Append-only effective-dated rows carry only business time: no created_at on
+    # any care table (the root uses opened_at/closed_at instead).
+    for table_columns in (episodes, memberships, responsibility, booking):
+        assert "created_at" not in table_columns
+    # Every timestamp is TIMESTAMPTZ.
+    assert episodes["opened_at"] == "timestamp with time zone"
+    assert episodes["closed_at"] == "timestamp with time zone"
+    for child in (memberships, responsibility, booking):
+        assert child["effective_from"] == "timestamp with time zone"
+        assert child["effective_to"] == "timestamp with time zone"
+    # PK / FK / CHECK names land via the naming convention (EXCLUDE excluded here).
+    assert {
+        "pk_episodes",
+        "fk_episodes_client_id_identities",
+        "fk_episodes_managing_org_id_organizations",
+        "ck_episodes_status",
+        "pk_episode_memberships",
+        "fk_episode_memberships_episode_id_episodes",
+        "fk_episode_memberships_provider_id_identities",
+        "ck_episode_memberships_role",
+        "ck_episode_memberships_period",
+        "pk_responsibility_assignments",
+        "fk_responsibility_assignments_episode_id_episodes",
+        "fk_responsibility_assignments_provider_id_identities",
+        "ck_responsibility_assignments_period",
+        "pk_booking_contacts",
+        "fk_booking_contacts_episode_id_episodes",
+        "fk_booking_contacts_provider_id_identities",
+        "ck_booking_contacts_period",
+    } <= constraints
+    # The two temporal no-overlap EXCLUDE constraints (one holder per instant).
+    assert exclude_names == {"responsibility_assignments_no_overlap", "booking_contacts_no_overlap"}
+    assert version == "0005"
 
 
 def test_upgrade_offline_emits_create_extension(

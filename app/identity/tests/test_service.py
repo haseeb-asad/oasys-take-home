@@ -8,13 +8,24 @@ from uuid import UUID
 import pytest
 
 from app.core.security import verify_password
+from app.identity.domain.entities import Profile
 from app.identity.domain.exceptions import EmailAlreadyRegistered
-from app.identity.service import authenticate, get_identity, register
+from app.identity.domain.value_objects import ProfileType
+from app.identity.service import (
+    authenticate,
+    create_profile,
+    get_identity,
+    has_active_profile,
+    register,
+)
 
-from .conftest import FakeIdentityRepository, make_identity
+from .conftest import FakeIdentityRepository, FakeProfileRepository, make_identity
 
 _NOW = datetime(2026, 1, 1, tzinfo=UTC)
 _NEW_ID = UUID(int=42)
+_IDENTITY_ID = UUID(int=7)
+_OTHER_IDENTITY_ID = UUID(int=8)
+_PROFILE_ID = UUID(int=9)
 
 
 # --- authenticate -----------------------------------------------------------
@@ -79,3 +90,74 @@ def test_get_identity_present_returns_identity() -> None:
 def test_get_identity_absent_returns_none() -> None:
     repo = FakeIdentityRepository()
     assert get_identity(repo, UUID(int=999)) is None
+
+
+# --- create_profile ---------------------------------------------------------
+
+
+def test_create_profile_builds_and_persists_active_profile() -> None:
+    repo = FakeProfileRepository()
+    profile = create_profile(
+        repo, identity_id=_IDENTITY_ID, profile_type=ProfileType.PROVIDER, new_id=_PROFILE_ID
+    )
+    assert profile.id == _PROFILE_ID
+    assert profile.identity_id == _IDENTITY_ID
+    assert profile.profile_type is ProfileType.PROVIDER
+    assert profile.is_active is True  # created profiles are never born discarded
+    assert repo.list_for(_IDENTITY_ID) == [profile]
+
+
+# --- has_active_profile (truth table) ---------------------------------------
+
+
+def _discarded(profile_type: ProfileType) -> Profile:
+    return Profile(
+        id=UUID(int=100),
+        identity_id=_IDENTITY_ID,
+        profile_type=profile_type,
+        discarded_at=_NOW,
+    )
+
+
+def test_has_active_profile_true_for_active_matching_profile() -> None:
+    repo = FakeProfileRepository()
+    create_profile(
+        repo, identity_id=_IDENTITY_ID, profile_type=ProfileType.PROVIDER, new_id=_PROFILE_ID
+    )
+    assert has_active_profile(repo, _IDENTITY_ID, ProfileType.PROVIDER) is True
+
+
+def test_has_active_profile_false_for_discarded_profile() -> None:
+    repo = FakeProfileRepository(profiles=[_discarded(ProfileType.PROVIDER)])
+    assert has_active_profile(repo, _IDENTITY_ID, ProfileType.PROVIDER) is False
+
+
+def test_has_active_profile_false_for_wrong_type() -> None:
+    repo = FakeProfileRepository()
+    create_profile(
+        repo, identity_id=_IDENTITY_ID, profile_type=ProfileType.CLIENT, new_id=_PROFILE_ID
+    )
+    assert has_active_profile(repo, _IDENTITY_ID, ProfileType.PROVIDER) is False
+
+
+def test_has_active_profile_false_when_no_profiles() -> None:
+    repo = FakeProfileRepository()
+    assert has_active_profile(repo, _IDENTITY_ID, ProfileType.CLIENT) is False
+
+
+def test_has_active_profile_true_when_active_duplicate_alongside_discarded() -> None:
+    # An identity may carry both a discarded and an active row of the same type
+    # (no partial-unique index); ``any`` over the rows still resolves to active.
+    repo = FakeProfileRepository(profiles=[_discarded(ProfileType.PROVIDER)])
+    create_profile(
+        repo, identity_id=_IDENTITY_ID, profile_type=ProfileType.PROVIDER, new_id=_PROFILE_ID
+    )
+    assert has_active_profile(repo, _IDENTITY_ID, ProfileType.PROVIDER) is True
+
+
+def test_has_active_profile_isolates_by_identity() -> None:
+    repo = FakeProfileRepository()
+    create_profile(
+        repo, identity_id=_OTHER_IDENTITY_ID, profile_type=ProfileType.PROVIDER, new_id=_PROFILE_ID
+    )
+    assert has_active_profile(repo, _IDENTITY_ID, ProfileType.PROVIDER) is False
