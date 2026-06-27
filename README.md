@@ -305,6 +305,31 @@ The PDF scenarios map as follows:
    simple. Migrations are hand-authored because this schema uses Postgres details
    such as `citext`, `btree_gist`, checks, and exclusion constraints.
 
+## Accepted V1 Trade-offs
+
+These are deliberate simplifications for the take-home. They keep the runnable
+slice focused on identity, episode membership, and authorization.
+
+- Authz denial diagnostics: the PDP carries actor, capability, and resource
+  internally for tests and debugging. The v1 API may expose that detail in a 403
+  response; a hardened public API should return a generic forbidden message and
+  log the structured denial server-side.
+- Invitation onboarding: v1 supports registration/login and documents
+  invitations as a token/status/accepted-identity stub. Email sending and full
+  invitation acceptance are intentionally cut because the care-team core is the
+  focus.
+- Provider-create bootstrap: providers can create the initial episode in the
+  synthetic demo path. A fuller product would add org-admin episode creation and
+  stricter onboarding policy.
+- One managing organization per episode: this keeps org-admin management
+  unambiguous. Multi-org management is left as an open question.
+- Episode-scoped resources only: clinical records and rehab assessments are
+  built because they exercise the access model. Client-scoped profile/schedule
+  resources are documented next steps.
+- Enriched backfill staging: the bonus migration assumes staging contains role
+  and managing org so the backfill is deterministic. A raw legacy link would
+  need policy to synthesize missing structure.
+
 ## What Is Cut
 
 Cut from runtime scope:
