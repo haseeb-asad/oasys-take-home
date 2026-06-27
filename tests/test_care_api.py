@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
@@ -35,62 +35,25 @@ from app.care.service import (
     close_episode,
     open_episode,
 )
-from app.identity.domain.entities import Identity
 from app.identity.domain.value_objects import ProfileType
-from app.identity.repository import SqlAlchemyIdentityRepository, SqlAlchemyProfileRepository
-from app.identity.service import create_profile
-from app.organization.domain.entities import Organization
-from app.organization.domain.value_objects import OrgRole, OrgType
-from app.organization.repository import (
-    SqlAlchemyOrganizationRepository,
-    SqlAlchemyOrgStaffMembershipRepository,
+from app.organization.domain.value_objects import OrgType
+from tests._world import (
+    auth_header as _auth,
 )
-from app.organization.service import add_staff_membership
+from tests._world import (
+    make_admin_membership as _admin_membership,
+)
+from tests._world import (
+    make_identity as _identity,
+)
+from tests._world import (
+    make_org as _org,
+)
+from tests._world import (
+    make_profile as _profile,
+)
 
 _EPISODES = "/v1/episodes"
-
-
-# --- persistence helpers (real repos/services, flushed into the txn) ---------
-
-
-def _identity(session: Session, email: str) -> UUID:
-    identity = Identity(
-        id=uuid4(),
-        email=email,
-        display_name="Person",
-        password_hash="stub-hash",
-        created_at=datetime(2026, 1, 1, tzinfo=UTC),
-    )
-    SqlAlchemyIdentityRepository(session).add(identity)
-    return identity.id
-
-
-def _profile(session: Session, identity_id: UUID, profile_type: ProfileType) -> None:
-    create_profile(
-        SqlAlchemyProfileRepository(session),
-        identity_id=identity_id,
-        profile_type=profile_type,
-        new_id=uuid4(),
-    )
-
-
-def _org(session: Session, name: str, org_type: OrgType, created_at: datetime) -> UUID:
-    org = Organization(id=uuid4(), name=name, type=org_type, created_at=created_at)
-    SqlAlchemyOrganizationRepository(session).add(org)
-    return org.id
-
-
-def _admin_membership(
-    session: Session, identity_id: UUID, org_id: UUID, effective_from: datetime
-) -> None:
-    add_staff_membership(
-        SqlAlchemyOrgStaffMembershipRepository(session),
-        identity_id=identity_id,
-        org_id=org_id,
-        role=OrgRole.ADMIN,
-        effective_from=effective_from,
-        new_id=uuid4(),
-    )
 
 
 @dataclass(frozen=True)
@@ -282,10 +245,6 @@ def _world(session: Session, clock: datetime) -> _World:
         seed_clinical_body=seed_clinical_body,
         seed_rehab_body=seed_rehab_body,
     )
-
-
-def _auth(token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}"}
 
 
 # --- auth / coarse-surface ---------------------------------------------------
