@@ -52,6 +52,11 @@ def test_demo_seeded_injects_deterministic_ids(client: TestClient, db_session: S
     assert str(ids.general) in body
     # The closed (Prior Rehab) episode id is injected so the page can replay S4 live.
     assert str(ids.closed) in body
+    # Lee's bounded coverage window is injected (non-null) so the time-aware S3
+    # scenario can compute its expected status from the current clock.
+    assert '"coverage_from"' in body
+    assert '"coverage_from": null' not in body
+    assert '"coverage_to": null' not in body
     assert '"seeded": true' in body
 
 

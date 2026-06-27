@@ -35,9 +35,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.care.orm import EpisodeModel
+from app.care.orm import EpisodeMembershipModel, EpisodeModel
 from app.core.deps import get_session
 from app.identity.orm import IdentityModel
 from scripts.seed import SaraWorld, world_ids  # intentional demo-only coupling to the seed world
@@ -68,16 +69,41 @@ def _world_present(session: Session, ids: SaraWorld) -> bool:
     )
 
 
+def _lee_coverage(session: Session, ids: SaraWorld) -> tuple[str | None, str | None]:
+    """Resolve Lee's BOUNDED Shoulder coverage window as ISO-8601 strings.
+
+    The seed creates exactly one bounded Lee membership on the Shoulder episode (a
+    half-open ``[effective_from, effective_to)`` window), so a single
+    ``provider_id == lee AND episode_id == shoulder AND effective_to IS NOT NULL``
+    row is the coverage window. Returns ``(from, to)`` as ``isoformat`` strings, or
+    ``(None, None)`` when that row is absent (e.g. an unseeded world), so the page
+    can degrade gracefully rather than assert a window that is not there.
+    """
+    membership = session.scalars(
+        select(EpisodeMembershipModel).where(
+            EpisodeMembershipModel.provider_id == ids.lee,
+            EpisodeMembershipModel.episode_id == ids.shoulder,
+            EpisodeMembershipModel.effective_to.is_not(None),
+        )
+    ).first()
+    if membership is None or membership.effective_to is None:
+        return None, None
+    return membership.effective_from.isoformat(), membership.effective_to.isoformat()
+
+
 def _build_seed(session: Session) -> dict[str, object]:
     """Resolve the seed's deterministic ids into the page's injected ``SEED`` dict.
 
     Ids are all strings (the page's JS only ever interpolates them into URLs). The
     page-facing handle ``olivia`` maps to the FitGym org admin (``admin@example.com``,
-    ``SaraWorld.org_admin``). ``seeded`` is True only when the key rows are present
-    in the DB; the page replays the scenarios only then, otherwise it renders the
-    run-the-seed notice.
+    ``SaraWorld.org_admin``). ``coverage_from`` / ``coverage_to`` carry Lee's bounded
+    Shoulder coverage window (ISO-8601, or ``None`` when absent) so the page can
+    evaluate the time-aware S3 scenario against the current clock. ``seeded`` is True
+    only when the key rows are present in the DB; the page replays the scenarios only
+    then, otherwise it renders the run-the-seed notice.
     """
     ids = world_ids()
+    coverage_from, coverage_to = _lee_coverage(session, ids)
     return {
         "password": _SEED_PASSWORD,
         "sara": str(ids.sara),
@@ -91,6 +117,8 @@ def _build_seed(session: Session) -> dict[str, object]:
         "general": str(ids.general),
         "shoulder": str(ids.shoulder),
         "closed": str(ids.closed),
+        "coverage_from": coverage_from,
+        "coverage_to": coverage_to,
         "seeded": _world_present(session, ids),
     }
 

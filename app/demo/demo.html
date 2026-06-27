@@ -123,11 +123,10 @@
   .why code { font-family: var(--mono); background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 5px; }
   .copied { color: var(--pass); font-size: 12px; margin-left: 8px; }
   .notelink { color: var(--muted); font-size: 12.5px; margin-top: 8px; font-style: italic; }
-  .section-title { font-size: 13px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); margin: 26px 0 10px; }
-  .nl-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; margin-bottom: 12px; }
-  .nl-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .nl-why { color: var(--muted); font-size: 13.5px; margin: 8px 0 0; }
-  .nl-why code { font-family: var(--mono); }
+  .tphase { font-weight: 800; font-size: 15.5px; margin: 12px 0 4px; }
+  .tphase.inside { color: var(--pass); }
+  .tphase.outside { color: var(--fail); }
+  .tverdict { font-size: 14px; font-weight: 600; margin: 0; }
   footer { color: var(--muted); font-size: 12.5px; margin-top: 28px; border-top: 1px solid var(--line); padding-top: 14px; }
   footer code { font-family: var(--mono); }
 </style>
@@ -157,17 +156,15 @@
 
   <div id="scenarios"></div>
 
-  <div class="section-title">Not live-replayable here (proven in tests/test_scenarios.py)</div>
-  <div id="notlive"></div>
-
   <footer>
-    This page mirrors a non-mutating subset of the recipes in
-    <code>tests/test_scenarios.py</code>. The one time-dependent scenario (S3) is
-    listed above with its reasoning but is asserted in the test suite, not replayed
-    in the browser; the closed-episode scenario (S4) now replays live above against
-    the seeded Prior Rehab episode (a safe read plus a denied write). Tokens are
-    cached per actor (each actor logs in once) and every panel shows that actor's
-    token and decoded claims.
+    This page replays the full named set of non-mutating care-team access scenarios
+    live against this server's same-origin <code>/v1</code> API. That now includes the
+    time-bounded coverage scenario (S3): its expected status is computed at play time
+    from the current clock against Lee's seeded coverage window, then checked against
+    what the live server actually returns. The closed-episode scenario (S4) replays
+    against the seeded Prior Rehab episode (a safe read plus a denied write). Tokens are
+    cached per actor (each actor logs in once) and every panel shows that actor's token
+    and decoded claims.
   </footer>
 </div>
 
@@ -183,6 +180,7 @@ const SEED = __SEED_JSON__;
 const ACTOR = {
   khan:   { name: "Dr Khan",      role: "physiotherapist, responsible provider (Shoulder)", email: "khan@example.com" },
   patel:  { name: "Dr Patel",     role: "physician, Shoulder member",                        email: "patel@example.com" },
+  lee:    { name: "Dr Lee",       role: "physiotherapist, time-bounded coverage on Shoulder", email: "lee@example.com" },
   mike:   { name: "Mike Trainer", role: "personal trainer, General episode only",            email: "mike@example.com" },
   olivia: { name: "Olivia Admin", role: "FitGym org staff (admin)",                          email: "admin@example.com" },
 };
@@ -204,7 +202,7 @@ function nameFor(id) {
   return ID_TO_NAME[id] || id;
 }
 
-// The nine non-mutating scenarios, mirroring tests/test_scenarios.py statuses.
+// The ten non-mutating scenarios, mirroring tests/test_scenarios.py statuses.
 const SHOULDER = SEED.shoulder;
 const GENERAL = SEED.general;
 const CLOSED = SEED.closed;
@@ -232,6 +230,18 @@ const SCENARIOS = [
     path: "/v1/episodes/" + SHOULDER + "/clinical-records",
     expected: 200,
     why: "Patel is a current Shoulder member and the physician role grid carries VIEW_CLINICAL, so membership AND role grant the read (200); cross-org staffing is irrelevant once you are on the team.",
+  },
+  {
+    id: "s3",
+    tag: "S3",
+    title: "Lee reads the Shoulder clinical records (time-bounded)",
+    actor: "lee",
+    timeBased: true,
+    proves: "Time-bounded coverage: access is decided against the server's clock at the moment of the request.",
+    method: "GET",
+    path: "/v1/episodes/" + SHOULDER + "/clinical-records",
+    // No static expected: for a timeBased scenario the expected status is computed at
+    // play time from `new Date()` vs the half-open [coverage_from, coverage_to) window.
   },
   {
     id: "s6deny-read",
@@ -315,14 +325,40 @@ const SCENARIOS = [
   },
 ];
 
-// The scenarios that cannot be replayed by a read-only, wall-clock-bound page.
-const NOT_LIVE = [
-  {
-    tag: "S3",
-    title: "Coverage window expires by wall-clock time",
-    why: "Lee's clinical access is bounded to a half-open [+8 weeks, +10 weeks) window. The live server reads the real wall clock and the API has no as-of-time parameter, so the browser cannot time-travel the membership to watch it flip 403 to 200 to 403.",
-  },
-];
+// --- time-aware evaluation (S3): now vs Lee's injected coverage window -------
+
+// Evaluate the current clock against the half-open [coverage_from, coverage_to)
+// window injected by the server. Returns { win, now, phase, expected }, or
+// { win: null } when the window is absent (unseeded world) so S3 can degrade.
+function timeEvaluate() {
+  if (!SEED.coverage_from || !SEED.coverage_to) return { win: null };
+  const from = new Date(SEED.coverage_from);
+  const to = new Date(SEED.coverage_to);
+  if (isNaN(from.getTime()) || isNaN(to.getTime())) return { win: null };
+  const now = new Date();
+  const phase = now < from ? "before" : (now < to ? "inside" : "after");
+  const expected = phase === "inside" ? 200 : 403;
+  return { win: { from: from, to: to }, now: now, phase: phase, expected: expected };
+}
+
+// The S3 reasoning, written from the computed phase so it reads correctly whether
+// now is before, inside, or after Lee's coverage window (no time-travel / as-of copy).
+function buildS3Why(timeEval) {
+  if (!timeEval || !timeEval.win) {
+    return "Lee is on the Shoulder team only for a bounded coverage window, decided " +
+      "against the server's clock at request time. That window is not present here, " +
+      "so the time math is skipped and the live status above stands on its own.";
+  }
+  const inside = timeEval.phase === "inside";
+  const memberPhrase = inside ? "a current" : "not a current";
+  const readPhrase = inside ? "allowed (200)" : "denied (403)";
+  const tail = inside
+    ? "The same membership returns 403 the moment now leaves the window."
+    : "The same membership returns 200 while now is inside the window.";
+  return "Lee is on the Shoulder team only for the coverage window. Evaluated at the " +
+    "current server time, now is " + timeEval.phase + " the window, so Lee is " +
+    memberPhrase + " member and the clinical read is " + readPhrase + ". " + tail;
+}
 
 // --- live request plumbing --------------------------------------------------
 
@@ -536,13 +572,13 @@ function fallbackCopy(text) {
 
 // --- section 3: response (status, expected vs actual, JSON, roster) ----------
 
-function sectionResponse(sc, result, pass) {
+function sectionResponse(sc, result, pass, expected) {
   const s = section("3 · Response");
   const row = el("div", "status-row");
   row.appendChild(el("div", "status-big " + (pass ? "ok" : "bad"), String(result.status)));
   const exp = el("div", "exp");
   exp.appendChild(document.createTextNode("expected "));
-  exp.appendChild(el("b", null, String(sc.expected)));
+  exp.appendChild(el("b", null, String(expected)));
   exp.appendChild(document.createTextNode(" · actual "));
   exp.appendChild(el("b", "actual " + (pass ? "ok" : "bad"), String(result.status)));
   row.appendChild(exp);
@@ -589,11 +625,34 @@ function renderRoster(data) {
   return box;
 }
 
+// --- time evaluation section (S3 only): now vs the coverage window -----------
+
+function sectionTimeEval(timeEval) {
+  const s = section("Time evaluation");
+  if (!timeEval || !timeEval.win) {
+    s.appendChild(el("p", "why",
+      "Lee's coverage window was not found in the seed, so the time math is skipped; " +
+      "the live request below still ran against the server's clock."));
+    return s;
+  }
+  const inside = timeEval.phase === "inside";
+  const phaseWord = timeEval.phase === "before" ? "BEFORE" : (inside ? "INSIDE" : "AFTER");
+  s.appendChild(kv("Coverage window",
+    timeEval.win.from.toLocaleString() + " → " + timeEval.win.to.toLocaleString(), "mono"));
+  s.appendChild(kv("Current time", timeEval.now.toLocaleString(), "mono"));
+  s.appendChild(el("p", "tphase " + (inside ? "inside" : "outside"),
+    "now is " + phaseWord + " Lee's coverage window"));
+  const verdict = "so at the current time Lee " + (inside ? "IS" : "IS NOT") +
+    " a current member, and this read should " + (inside ? "SUCCEED (200)" : "FAIL (403)");
+  s.appendChild(el("p", "tverdict", verdict));
+  return s;
+}
+
 // --- section 4: why ----------------------------------------------------------
 
-function sectionWhy(sc) {
+function sectionWhy(why) {
   const s = section("4 · Why this outcome");
-  s.appendChild(el("p", "why", sc.why));
+  s.appendChild(el("p", "why", why));
   return s;
 }
 
@@ -637,13 +696,22 @@ async function playScenario(sc) {
   try {
     const token = await ensureLogin(sc.actor);
     const decoded = decodeJwt(token);
+    // For a timeBased scenario the expected status is decided live, from the current
+    // clock vs the injected window (403 when the window is absent), not a static value.
+    let timeEval = null;
+    let expected = sc.expected;
+    if (sc.timeBased) {
+      timeEval = timeEvaluate();
+      expected = timeEval.win ? timeEval.expected : 403;
+    }
     const result = await runRequest(sc, token);
-    const pass = result.status === sc.expected;
+    const pass = result.status === expected;
     p.detail.innerHTML = "";
     p.detail.appendChild(sectionActorToken(sc, token, decoded));
     p.detail.appendChild(sectionRequest(sc, token));
-    p.detail.appendChild(sectionResponse(sc, result, pass));
-    p.detail.appendChild(sectionWhy(sc));
+    if (sc.timeBased) p.detail.appendChild(sectionTimeEval(timeEval));
+    p.detail.appendChild(sectionResponse(sc, result, pass, expected));
+    p.detail.appendChild(sectionWhy(sc.timeBased ? buildS3Why(timeEval) : sc.why));
     p.detail.hidden = false;
     setPill(sc, pass ? "pass" : "fail", pass ? "PASS" : "FAIL");
     return pass;
@@ -682,28 +750,9 @@ async function playAll() {
   btn.disabled = false;
 }
 
-function buildNotLive() {
-  const host = document.getElementById("notlive");
-  NOT_LIVE.forEach(function (n) {
-    const panel = el("div", "nl-panel");
-    const head = el("div", "nl-head");
-    head.appendChild(el("span", "chip", n.tag));
-    head.appendChild(el("span", "ptitle", n.title));
-    head.appendChild(el("span", "pill idle", "not live"));
-    panel.appendChild(head);
-    const why = el("p", "nl-why");
-    why.appendChild(document.createTextNode(n.why + " Proven in "));
-    why.appendChild(el("code", "mono", "tests/test_scenarios.py"));
-    why.appendChild(document.createTextNode("."));
-    panel.appendChild(why);
-    host.appendChild(panel);
-  });
-}
-
 function init() {
   const host = document.getElementById("scenarios");
   SCENARIOS.forEach(function (sc) { host.appendChild(buildPanel(sc)); });
-  buildNotLive();
 
   if (!SEED.seeded) {
     document.getElementById("seedNotice").hidden = false;
