@@ -205,13 +205,13 @@ function nameFor(id) {
 // The eleven scenarios. Ten are non-mutating (reads and denied writes) and mirror
 // the access statuses in tests/test_scenarios.py. The coverage scenario creates a
 // real, short, self-expiring bounded membership via the covering_for path
-// (start_coverage); it auto-expires against the server clock within ~30s, so the
+// (add_coverage); it auto-expires against the server clock within ~30s, so the
 // active team returns to its seeded state on its own. See tests/test_care_api.py.
 const SHOULDER = SEED.shoulder;
 const GENERAL = SEED.general;
 const CLOSED = SEED.closed;
 const ADD_MIKE = { provider_id: SEED.mike, role: "physician", change_reason: "demo (denied, no mutation)" };
-// Short, self-expiring coverage create: covering_for routes through start_coverage,
+// Short, self-expiring coverage create: covering_for routes through add_coverage,
 // which makes effective_to mandatory. A ~30s window is computed at play time so the
 // membership auto-expires against the server clock (a bounded coverage cannot be
 // re-ended); the active team returns to its seeded state on its own.
@@ -345,12 +345,12 @@ const SCENARIOS = [
     tag: "S3 coverage",
     title: "Mike gets short, self-expiring coverage on Shoulder",
     actor: "khan",
-    proves: "The covering_for marker routes an add-member through start_coverage with a mandatory end date, persisting a real bounded membership that auto-expires; no cleanup job ends it. Run last because, unlike every scenario above, it writes.",
+    proves: "The covering_for marker routes an add-member through add_coverage with a mandatory end date, persisting a real bounded membership that auto-expires; no cleanup job ends it. Run last because, unlike every scenario above, it writes.",
     method: "POST",
     path: "/v1/episodes/" + SHOULDER + "/members?acting_as=provider",
     body: coverMikeBody,
     expected: 201,
-    why: "Khan is the responsible provider on Shoulder, so he holds MANAGE_TEAM and the request is authorized. The covering_for marker routes through episode.start_coverage, which makes effective_to mandatory, and persists a real bounded coverage membership for Mike (201): a genuine write, run last so it does not disturb the read-only scenarios above. Mike joins as a personal trainer, a role with no clinical access, so even while covering he cannot read clinical records. The window is about 30 seconds, so the membership auto-expires against the server clock (the same half-open rule S3 demonstrates) and the active team returns to its seeded state with no manual end (a bounded coverage cannot be re-ended).",
+    why: "Khan is the responsible provider on Shoulder, so he holds MANAGE_TEAM and the request is authorized. The covering_for marker routes through episode.add_coverage, which makes effective_to mandatory, and persists a real bounded coverage membership for Mike (201): a genuine write, run last so it does not disturb the read-only scenarios above. Mike joins as a personal trainer, a role with no clinical access, so even while covering he cannot read clinical records. The window is about 30 seconds, so the membership auto-expires against the server clock (the same half-open rule S3 demonstrates) and the active team returns to its seeded state with no manual end (a bounded coverage cannot be re-ended).",
   },
 ];
 
