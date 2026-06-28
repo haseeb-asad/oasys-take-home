@@ -4,8 +4,9 @@ These cover the ROUTE only: that it renders HTML with the seed ids injected when
 the Sara world is present, and that it degrades to a clear run-the-seed notice
 (still 200, never a 500) when the seed is absent. The scenario LOGIC the page
 replays (S1..S7 plus the MANAGE_TEAM paths) is asserted end to end against the
-real authorization stack in ``tests/test_scenarios.py``; this page is read-only
-and mirrors a non-mutating subset of those recipes in the browser.
+real authorization stack in ``tests/test_scenarios.py``; this route only renders
+the page, whose browser flow is mostly reads/denied writes plus one
+self-expiring coverage write.
 
 Both tests share the per-test ``db_session`` with the ``client`` (the
 ``get_session`` override yields it), so a seed flushed into the transaction is

@@ -1,8 +1,8 @@
 """Authorization domain exception(s) — PURE (no infrastructure imports).
 
 ``Forbidden`` is the single way the PDP says "no": it subclasses the
-shared-kernel ``DomainError`` so the central handler can map it (to HTTP 403) in
-the web-layer commit — that mapping is deliberately NOT wired here.
+shared-kernel ``DomainError`` so the central handler can map it to HTTP 403; that
+mapping stays outside this pure module.
 
 ``ProfileSurfaceRequired`` is the Layer-1 (coarse) sibling: it is raised by the
 request-scoped surface resolver (``app/care/deps.py``) BEFORE the PDP runs, and

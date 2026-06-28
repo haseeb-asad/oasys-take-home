@@ -137,9 +137,11 @@
   <p class="intro">
     Each panel below replays ONE named access scenario against this server's live,
     same-origin <code>/v1</code> API: a real login, a real authorized request, the
-    decoded token, and the authorization reasoning behind the outcome. Every
-    scenario is read-only (reads and denied writes only), so playing them never
-    mutates the seeded Sara world; play one at a time or use Play all.
+    decoded token, and the authorization reasoning behind the outcome. All but one
+    scenario are read-only (reads and denied writes only); the final scenario
+    performs one real, short, self-expiring write (a bounded coverage membership)
+    that expires within about 30 seconds, so active access returns to the seeded
+    state without manual cleanup. Play one at a time or use Play all.
   </p>
 
   <div id="seedNotice" class="notice" hidden>
@@ -157,8 +159,9 @@
   <div id="scenarios"></div>
 
   <footer>
-    This page replays the full named set of non-mutating care-team access scenarios
-    live against this server's same-origin <code>/v1</code> API. That now includes the
+    This page replays a named set of care-team access scenarios live against this
+    server's same-origin <code>/v1</code> API: all are non-mutating (reads and denied
+    writes) except the final self-expiring coverage write. That set includes the
     time-bounded coverage scenario (S3): its expected status is computed at play time
     from the current clock against Lee's seeded coverage window, then checked against
     what the live server actually returns. The closed-episode scenario (S4) replays

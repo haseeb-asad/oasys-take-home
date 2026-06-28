@@ -1,10 +1,12 @@
-"""Tests for the Alembic setup and the 0001 extensions migration.
+"""Tests for the Alembic setup and the full migration chain through head ``0008``.
 
-Four tests need no database: the script directory loads, ``0001`` is the head
-with no parent, ``alembic.ini`` carries no real URL, and an offline (``sql=True``)
-upgrade/downgrade emits the CREATE/DROP EXTENSION statements. One test hits real
-Postgres to prove the extensions and version row actually land; it fails closed
-in CI and skips locally when no database is reachable.
+Four tests need no database: the script directory loads and the revision chain
+runs ``0001`` -> ``0008`` (``0008`` is the head, ``0001`` the parentless root),
+``alembic.ini`` carries no real URL, and an offline (``sql=True``) upgrade/downgrade
+emits the CREATE/DROP EXTENSION statements. The remaining tests hit real Postgres
+to prove the extensions, every table created through ``0008`` (identities,
+organizations, profiles, care, clinical), and the version row actually land; they
+fail closed in CI and skip locally when no database is reachable.
 """
 
 from __future__ import annotations

@@ -1,8 +1,8 @@
 """Outbound port for the PDP's profile-state queries.
 
 The policy decision point is pure and must not reach into the database; it
-depends on this ``Protocol`` (a port), which an infrastructure adapter
-implements in a later commit. Every method takes an injectable ``now`` so the
+depends on this ``Protocol`` (a port), which infrastructure adapters implement.
+Every method takes an injectable ``now`` so the
 adapter can answer as-of a point in time (effective-dated profiles / org-staff
 memberships), never via a hidden clock.
 """
