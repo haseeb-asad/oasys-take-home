@@ -3,8 +3,9 @@
 Edge layer (web). The handler depends ONLY on ``get_session`` and on the seed's
 DB-free ``world_ids()`` to inject the Sara world's DETERMINISTIC uuid5 ids (plus
 the seed login password) into a single static HTML page. The page's own
-JavaScript then replays the NON-MUTATING care-team access scenarios against the
-SAME-ORIGIN live ``/v1`` API (reads plus denied writes), so the demo is
+JavaScript then replays the care-team access scenarios against the SAME-ORIGIN
+live ``/v1`` API: all are non-mutating (reads plus denied writes) except a final
+short, self-expiring coverage write that auto-reverts within ~30s, so the demo is
 repeatable and never degrades the seed.
 
 Why deterministic ids and not a by-business-key lookup: ``reason`` (episode) and
@@ -23,8 +24,8 @@ placeholder ``__SEED_JSON__`` in ``demo.html`` is replaced with the ``json.dumps
 of the lookup result.
 
 The ``scripts.seed`` import below is an INTENTIONAL demo-only coupling to the seed
-world: this read-only page exists to showcase that one committed world, so it is
-allowed to know its deterministic ids directly.
+world: this near-read-only page (the lone write self-expires) exists to showcase
+that one committed world, so it is allowed to know its deterministic ids directly.
 """
 
 from __future__ import annotations

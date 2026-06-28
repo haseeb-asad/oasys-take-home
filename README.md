@@ -108,7 +108,7 @@ Useful flows to try:
 - Login as Mike and read Sara's `general_training` episode as `acting_as=provider`.
 - Login as Sara and read her own episode as `acting_as=client`.
 - Login as Olivia and add a provider to the FitGym-managed episode as `acting_as=org_staff`.
-- Login as Khan and add Patel to the Khan-managed rehab episode as `acting_as=provider`.
+- Login as Khan and add Mike to the Khan-managed rehab episode as `acting_as=provider` (Patel, Lee, and Khan are already seeded there, so Mike is a fresh add).
 - Try Olivia against the Khan-managed episode. It should be denied because FitGym admin authority does not cross into Khan Solo Practice.
 - Try a trainer or massage therapist against clinical or rehab endpoints. They should be denied even when they are team members.
 
@@ -130,7 +130,7 @@ Core endpoints:
 
 ## Tests As Demonstration
 
-The tests are the best executable tour of the system. The suite is 608 tests, and
+The tests are the best executable tour of the system. The suite is 627 tests, and
 `ruff`, `mypy --strict`, and `pytest` run in CI on every pull request.
 
 Run the full suite after `./setup.sh`:
@@ -153,7 +153,7 @@ Useful focused suites:
 What these prove:
 
 - `tests/test_care_api.py` exercises the real FastAPI app, real auth, real PDP gates, and real Postgres persistence for the care-team scenarios.
-- `tests/test_scenarios.py` replays the seven named access scenarios end to end through `/v1` (the same recipes the `/demo` page shows in the browser).
+- `tests/test_scenarios.py` replays the seven named access scenarios end to end through `/v1` (a representative subset of which the `/demo` page replays live in the browser).
 - `app/care/tests/test_episode.py` proves the `Episode` aggregate invariants without infrastructure.
 - `app/authz/tests/test_policy.py` proves actor-surface-scoped authorization, see-vs-act capabilities, coverage expiry, closed episode behavior, and cross-org denial.
 - `tests/test_seed.py` proves the Sara world seed is deterministic and idempotent.
@@ -343,10 +343,12 @@ This repo includes an executable expand/contract-style migration sketch:
 - `migrations/versions/0008_legacy_provider_backfill.py`
 - `tests/test_backfill_episodes.py`
 
-It uses an enriched legacy staging table, backfills one `general_care` episode
-per legacy client-provider pairing, makes the legacy provider the initial member,
-responsible provider, and booking face, then records `migrated_episode_id` so the
-backfill is idempotent.
+It adds an enriched legacy staging table plus an executable backfill function for
+the staged rows. A plain `alembic upgrade head` creates the staging table empty;
+the backfill then runs over whatever legacy rows are staged into it, creating one
+`general_care` episode per legacy client-provider pairing, making the legacy
+provider the initial member, responsible provider, and booking face, and recording
+`migrated_episode_id` so the backfill is idempotent.
 
 The sketch takes the enriched-staging-table path: the legacy table carries the
 `role` and `managing_org_id` the episode model requires, so the backfill copies
