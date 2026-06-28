@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -820,3 +821,174 @@ def test_client_denied_clinical_403(
         headers=_auth(mint_token(str(world.client))),
     )
     assert resp.status_code == 403
+
+
+# --- SELECT FOR UPDATE wiring: mutating routes lock, reads do not (T5) --------
+
+
+def test_manage_team_routes_load_with_lock_and_reads_do_not(
+    client: TestClient,
+    db_session: Session,
+    clock: datetime,
+    mint_token: Callable[..., str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mutating (MANAGE_TEAM) routes pass for_update=True; read routes pass False."""
+    world = _world(db_session, clock)
+
+    recorded: list[bool] = []
+    original_get = SqlAlchemyEpisodeRepository.get
+
+    def recording_get(
+        self: SqlAlchemyEpisodeRepository, episode_id: UUID, *, for_update: bool = False
+    ) -> object:
+        recorded.append(for_update)
+        return original_get(self, episode_id, for_update=for_update)
+
+    monkeypatch.setattr(SqlAlchemyEpisodeRepository, "get", recording_get)
+
+    # Mutating route: PUT responsibility uses _ManageTeam -> for_update=True.
+    recorded.clear()
+    resp = client.put(
+        f"{_EPISODES}/{world.general}/responsibility",
+        headers=_auth(mint_token(str(world.physiotherapist))),
+        params={"acting_as": "provider"},
+        json={"provider_id": str(world.physician), "change_reason": "handoff"},
+    )
+    assert resp.status_code == 200
+    assert any(v is True for v in recorded), (
+        f"PUT responsibility must call get(for_update=True); recorded={recorded}"
+    )
+
+    # Read route: GET episode uses _ReadEpisode -> for_update=False.
+    recorded.clear()
+    resp = client.get(
+        f"{_EPISODES}/{world.general}",
+        headers=_auth(mint_token(str(world.physician))),
+        params={"acting_as": "provider"},
+    )
+    assert resp.status_code == 200
+    assert all(v is False for v in recorded), (
+        f"GET episode must call get(for_update=False); recorded={recorded}"
+    )
+
+    # Read route: GET clinical-records uses _ReadClinical -> for_update=False.
+    recorded.clear()
+    resp = client.get(
+        f"{_EPISODES}/{world.general}/clinical-records",
+        headers=_auth(mint_token(str(world.physician))),
+    )
+    assert resp.status_code == 200
+    assert all(v is False for v in recorded), (
+        f"GET clinical-records must call get(for_update=False); recorded={recorded}"
+    )
+
+    # Write route: POST clinical-records uses _WriteClinical -> for_update=True.
+    # Authorization depends on the episode's closed/active state, so a concurrent
+    # close could bypass the WRITE_CLINICAL guard without this lock.
+    recorded.clear()
+    resp = client.post(
+        f"{_EPISODES}/{world.general}/clinical-records",
+        headers=_auth(mint_token(str(world.physician))),
+        json={"body": "lock check note"},
+    )
+    assert resp.status_code == 201
+    assert any(v is True for v in recorded), (
+        f"POST clinical-records must call get(for_update=True); recorded={recorded}"
+    )
+
+
+# --- covering_for (coverage marker, commit 3) ---------------------------------
+
+
+def test_add_member_with_covering_for_creates_bounded_coverage_201(
+    client: TestClient, db_session: Session, clock: datetime, mint_token: Callable[..., str]
+) -> None:
+    """covering_for routes through add_coverage: bounded row, change_reason preserved."""
+    world = _world(db_session, clock)
+    effective_to = (clock + timedelta(weeks=4)).isoformat()
+    resp = client.post(
+        f"{_EPISODES}/{world.general}/members",
+        headers=_auth(mint_token(str(world.physiotherapist))),
+        params={"acting_as": "provider"},
+        json={
+            "provider_id": str(world.khan_provider),
+            "role": "physician",
+            "change_reason": "covering for physician",
+            "effective_to": effective_to,
+            "covering_for": str(world.physician),
+        },
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    khan_rows = [m for m in data["members"] if m["provider_id"] == str(world.khan_provider)]
+    assert len(khan_rows) == 1
+    assert khan_rows[0]["effective_to"] is not None
+    assert khan_rows[0]["change_reason"] == "covering for physician"
+    # Coverage is membership-only: responsibility and face must stay with physiotherapist.
+    assert data["responsible_provider_id"] == str(world.physiotherapist)
+    assert data["face_provider_id"] == str(world.physiotherapist)
+
+
+def test_covering_for_without_effective_to_is_422(
+    client: TestClient, db_session: Session, clock: datetime, mint_token: Callable[..., str]
+) -> None:
+    """Cross-field validator: covering_for set but effective_to absent -> 422."""
+    world = _world(db_session, clock)
+    resp = client.post(
+        f"{_EPISODES}/{world.general}/members",
+        headers=_auth(mint_token(str(world.physiotherapist))),
+        params={"acting_as": "provider"},
+        json={
+            "provider_id": str(world.khan_provider),
+            "role": "physician",
+            "change_reason": "covering",
+            "covering_for": str(world.physician),
+            # effective_to intentionally absent
+        },
+    )
+    assert resp.status_code == 422
+    # The app compresses RequestValidationError; field errors live in ``errors`` list.
+    body_str = str(resp.json())
+    assert "effective_to" in body_str or "covering_for" in body_str
+
+
+def test_add_member_without_covering_for_unchanged_201(
+    client: TestClient, db_session: Session, clock: datetime, mint_token: Callable[..., str]
+) -> None:
+    """Plain add (no covering_for, no effective_to) still produces an open-ended row."""
+    world = _world(db_session, clock)
+    resp = client.post(
+        f"{_EPISODES}/{world.general}/members",
+        headers=_auth(mint_token(str(world.physiotherapist))),
+        params={"acting_as": "provider"},
+        json={"provider_id": str(world.khan_provider), "role": "physician", "change_reason": "add"},
+    )
+    assert resp.status_code == 201
+    khan_rows = [m for m in resp.json()["members"] if m["provider_id"] == str(world.khan_provider)]
+    assert len(khan_rows) == 1
+    assert khan_rows[0]["effective_to"] is None
+
+
+def test_add_member_with_effective_to_but_no_covering_for_still_works_201(
+    client: TestClient, db_session: Session, clock: datetime, mint_token: Callable[..., str]
+) -> None:
+    """effective_to alone (no covering_for) is the plain add-with-end-date path: still 201."""
+    world = _world(db_session, clock)
+    effective_to = (clock + timedelta(weeks=2)).isoformat()
+    resp = client.post(
+        f"{_EPISODES}/{world.general}/members",
+        headers=_auth(mint_token(str(world.physiotherapist))),
+        params={"acting_as": "provider"},
+        json={
+            "provider_id": str(world.khan_provider),
+            "role": "physician",
+            "change_reason": "planned end",
+            "effective_to": effective_to,
+            # covering_for intentionally absent
+        },
+    )
+    assert resp.status_code == 201
+    khan_rows = [m for m in resp.json()["members"] if m["provider_id"] == str(world.khan_provider)]
+    assert len(khan_rows) == 1
+    assert khan_rows[0]["effective_to"] is not None

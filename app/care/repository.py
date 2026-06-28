@@ -108,8 +108,25 @@ class SqlAlchemyEpisodeRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def get(self, episode_id: UUID) -> Episode | None:
-        root = self._session.get(EpisodeModel, episode_id)
+    def get(self, episode_id: UUID, *, for_update: bool = False) -> Episode | None:
+        """Load the Episode aggregate root and its three child collections.
+
+        ``for_update=True`` issues ``SELECT ... FOR UPDATE OF episodes`` on the
+        root row, serializing concurrent mutators of the same episode so each
+        acts on fresh committed state - eliminating the stale-read window where
+        two writers both pass the in-memory guard and collide at the DB. The
+        child-collection selects are always unlocked (one row per aggregate root,
+        no deadlock ordering risk). ``for_update=False`` (default) is a plain
+        read; all existing callers and read paths are byte-identical.
+        """
+        if for_update:
+            root = self._session.scalars(
+                select(EpisodeModel)
+                .where(EpisodeModel.id == episode_id)
+                .with_for_update(of=EpisodeModel)
+            ).one_or_none()
+        else:
+            root = self._session.get(EpisodeModel, episode_id)
         if root is None:
             return None
         membership_models = self._session.scalars(

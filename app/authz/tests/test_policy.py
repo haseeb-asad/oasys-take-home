@@ -288,7 +288,7 @@ class TestProviderTemporalGating:
         self, pdp: Pdp, directory: FakeProfileDirectory, active_episode: Episode
     ) -> None:
         directory.active_providers.add(PROVIDER_B)
-        active_episode.start_coverage(
+        active_episode.add_coverage(
             provider_id=PROVIDER_B,
             role=Role.PHYSIOTHERAPIST,
             effective_from=at(4),

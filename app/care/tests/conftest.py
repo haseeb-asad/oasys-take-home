@@ -29,7 +29,7 @@ class FakeEpisodeRepository:
 
     episodes: dict[UUID, Episode] = field(default_factory=dict)
 
-    def get(self, episode_id: UUID) -> Episode | None:
+    def get(self, episode_id: UUID, *, for_update: bool = False) -> Episode | None:
         return self.episodes.get(episode_id)
 
     def save(self, episode: Episode) -> None:

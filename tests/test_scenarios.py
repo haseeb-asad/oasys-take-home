@@ -467,3 +467,41 @@ def test_scenario_s7_handoff_is_append_only_two_rows(
     patel_rows = [r for r in data["responsibility"] if r["provider_id"] == str(sara_world.patel)]
     assert len(khan_rows) == 1 and khan_rows[0]["effective_to"] is not None  # closed
     assert len(patel_rows) == 1 and patel_rows[0]["effective_to"] is None  # open
+
+
+# --- covering_for (coverage marker, commit 3) --------------------------------
+
+
+def test_scenario_coverage_via_covering_for_marker_creates_bounded_membership(
+    client: TestClient,
+    sara_world: SaraTestWorld,
+    mint_token: Callable[..., str],
+    clock: datetime,
+) -> None:
+    """Khan adds bounded coverage via covering_for; responsibility and face remain his.
+
+    Drives the new add_coverage path through /v1: the cover row is membership-only
+    (responsibility / face unchanged) and carries a hard end date.
+    """
+    effective_to = (clock + timedelta(weeks=4)).isoformat()
+    resp = client.post(
+        f"{_EPISODES}/{sara_world.shoulder}/members",
+        headers=auth_header(mint_token(str(sara_world.khan))),
+        params={"acting_as": "provider"},
+        json={
+            "provider_id": str(sara_world.extra_provider),
+            "role": "physiotherapist",
+            "change_reason": "covering for Patel",
+            "effective_to": effective_to,
+            "covering_for": str(sara_world.patel),
+        },
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    cover_rows = [m for m in data["members"] if m["provider_id"] == str(sara_world.extra_provider)]
+    assert len(cover_rows) == 1
+    assert cover_rows[0]["effective_to"] is not None
+    assert cover_rows[0]["change_reason"] == "covering for Patel"
+    # Responsibility and face must stay with Khan (coverage is membership-only).
+    assert data["responsible_provider_id"] == str(sara_world.khan)
+    assert data["face_provider_id"] == str(sara_world.khan)

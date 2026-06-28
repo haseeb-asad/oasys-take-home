@@ -51,13 +51,20 @@ _READ = (ProfileType.PROVIDER, ProfileType.CLIENT, ProfileType.ORG_STAFF)
 
 # Capability gates, parametrized once (the dependency objects are created at import).
 _ManageTeam = Annotated[
-    Episode, Depends(require_episode_capability(Capability.MANAGE_TEAM, *_TEAM))
+    Episode, Depends(require_episode_capability(Capability.MANAGE_TEAM, *_TEAM, for_update=True))
 ]
 _ReadEpisode = Annotated[
     Episode, Depends(require_episode_capability(Capability.VIEW_BASIC_PROFILE, *_READ))
 ]
 _WriteClinical = Annotated[
-    Episode, Depends(require_episode_capability(Capability.WRITE_CLINICAL, ProfileType.PROVIDER))
+    # for_update=True: the write's authorization depends on the episode's closed/active
+    # state (WRITE_CLINICAL is an act capability suppressed on CLOSED episodes), so we
+    # must hold the episode row lock to prevent a concurrent close from bypassing the
+    # WRITE_CLINICAL gate via a stale read.
+    Episode,
+    Depends(
+        require_episode_capability(Capability.WRITE_CLINICAL, ProfileType.PROVIDER, for_update=True)
+    ),
 ]
 _ReadClinical = Annotated[
     Episode, Depends(require_episode_capability(Capability.VIEW_CLINICAL, ProfileType.PROVIDER))
@@ -119,6 +126,7 @@ def add_member(
         now=now,
         effective_from=payload.effective_from,
         effective_to=payload.effective_to,
+        covering_for=payload.covering_for,
     )
     session.commit()
     return EpisodeOut.from_episode(episode, now)

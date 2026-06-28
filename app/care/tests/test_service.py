@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from unittest import mock
 from uuid import UUID
 
 from app.care.domain.clinical import ClinicalRecord, RehabAssessment
@@ -256,3 +257,54 @@ def test_list_rehab_assessments_delegates() -> None:
     )
     repo.add(assessment)
     assert list_rehab_assessments(repo, EPISODE_ID) == [assessment]
+
+
+# --- covering_for routing: prove add_coverage vs add_member dispatch ----------
+
+
+def test_covering_for_dispatches_to_add_coverage() -> None:
+    """Service routes covering_for to episode.add_coverage.
+
+    If the service branch were reverted to skip add_coverage (e.g. always calling
+    add_member directly), spy_coverage would record zero calls and
+    spy_coverage.assert_called_once() would fail, pinning the routing decision.
+    """
+    repo = FakeEpisodeRepository()
+    episode = _open(repo)
+    with mock.patch.object(episode, "add_coverage", wraps=episode.add_coverage) as spy_coverage:
+        add_member(
+            repo,
+            episode,
+            provider_id=PROVIDER_B,
+            role=Role.PHYSICIAN,
+            change_reason="covering",
+            now=at(1),
+            effective_to=at(3),
+            covering_for=PROVIDER_A,
+        )
+    spy_coverage.assert_called_once()
+
+
+def test_plain_add_does_not_dispatch_to_add_coverage() -> None:
+    """Service routes a plain add to episode.add_member and does NOT call add_coverage.
+
+    If the service branch were reverted to always call add_coverage, spy_coverage
+    would record one call and spy_coverage.assert_not_called() would fail, pinning
+    the routing decision.
+    """
+    repo = FakeEpisodeRepository()
+    episode = _open(repo)
+    with (
+        mock.patch.object(episode, "add_coverage", wraps=episode.add_coverage) as spy_coverage,
+        mock.patch.object(episode, "add_member", wraps=episode.add_member) as spy_add,
+    ):
+        add_member(
+            repo,
+            episode,
+            provider_id=PROVIDER_B,
+            role=Role.PHYSICIAN,
+            change_reason="add",
+            now=at(1),
+        )
+    spy_coverage.assert_not_called()
+    spy_add.assert_called_once()

@@ -26,7 +26,8 @@ from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import event, text
+from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -181,11 +182,11 @@ def test_save_persists_added_member(db_session: Session) -> None:
     assert b_rows[0].role is Role.NUTRITION_COACH
 
 
-def test_start_coverage_membership_round_trip(db_session: Session) -> None:
+def test_add_coverage_membership_round_trip(db_session: Session) -> None:
     world = _world(db_session)
     repo = SqlAlchemyEpisodeRepository(db_session)
     episode = _open(world)
-    episode.start_coverage(
+    episode.add_coverage(
         provider_id=world.provider_b,
         role=Role.MASSAGE_THERAPIST,
         effective_from=_T1,
@@ -660,3 +661,138 @@ def test_save_exclusion_violation_session_remains_usable(db_session: Session) ->
     reloaded = repo.get(episode.id)
     assert reloaded is not None
     assert reloaded.id == episode.id
+
+
+# --- SELECT FOR UPDATE locking (T1-T4) ----------------------------------------
+
+
+def test_get_for_update_emits_for_update_of_episodes(
+    db_session: Session, db_connection: Connection
+) -> None:
+    """Locked load emits SELECT ... FOR UPDATE OF episodes on the root query only."""
+    world = _world(db_session)
+    repo = SqlAlchemyEpisodeRepository(db_session)
+    episode = _open(world)
+    repo.save(episode)
+    db_session.expunge_all()
+
+    captured: list[str] = []
+
+    def _capture(
+        conn: object,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        executemany: object,
+    ) -> None:
+        captured.append(statement)
+
+    event.listen(db_connection, "before_cursor_execute", _capture)
+    try:
+        repo.get(episode.id, for_update=True)
+    finally:
+        event.remove(db_connection, "before_cursor_execute", _capture)
+
+    # The root SELECT must carry both FOR UPDATE and OF episodes.
+    root_stmts = [
+        s
+        for s in captured
+        if "episodes" in s
+        and "episode_memberships" not in s
+        and "responsibility_assignments" not in s
+        and "booking_contacts" not in s
+    ]
+    assert any("FOR UPDATE" in s and "OF episodes" in s for s in root_stmts), (
+        f"Expected FOR UPDATE OF episodes on root query; captured: {captured}"
+    )
+
+
+def test_get_read_load_does_not_lock(db_session: Session, db_connection: Connection) -> None:
+    """Unlocked (default) load emits no FOR UPDATE clause on any query."""
+    world = _world(db_session)
+    repo = SqlAlchemyEpisodeRepository(db_session)
+    episode = _open(world)
+    repo.save(episode)
+    db_session.expunge_all()
+
+    captured: list[str] = []
+
+    def _capture(
+        conn: object,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        executemany: object,
+    ) -> None:
+        captured.append(statement)
+
+    event.listen(db_connection, "before_cursor_execute", _capture)
+    try:
+        repo.get(episode.id)
+    finally:
+        event.remove(db_connection, "before_cursor_execute", _capture)
+
+    assert not any("FOR UPDATE" in s for s in captured), (
+        f"Read load must not emit FOR UPDATE; captured: {captured}"
+    )
+
+
+def test_get_for_update_does_not_lock_child_tables(
+    db_session: Session, db_connection: Connection
+) -> None:
+    """Locked root load does NOT add FOR UPDATE to child-collection queries."""
+    world = _world(db_session)
+    repo = SqlAlchemyEpisodeRepository(db_session)
+    episode = _open(world)
+    repo.save(episode)
+    db_session.expunge_all()
+
+    captured: list[str] = []
+
+    def _capture(
+        conn: object,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        executemany: object,
+    ) -> None:
+        captured.append(statement)
+
+    event.listen(db_connection, "before_cursor_execute", _capture)
+    try:
+        repo.get(episode.id, for_update=True)
+    finally:
+        event.remove(db_connection, "before_cursor_execute", _capture)
+
+    child_tables = ("episode_memberships", "responsibility_assignments", "booking_contacts")
+    locked_children = [
+        s for s in captured if any(t in s for t in child_tables) and "FOR UPDATE" in s
+    ]
+    assert not locked_children, (
+        f"Child queries must not carry FOR UPDATE; locked: {locked_children}"
+    )
+
+
+def test_get_for_update_returns_hydrated_aggregate(db_session: Session) -> None:
+    """Locked load hydrates the aggregate identically to an unlocked read load."""
+    world = _world(db_session)
+    repo = SqlAlchemyEpisodeRepository(db_session)
+    episode = _open(world)
+    repo.save(episode)
+    db_session.expunge_all()
+
+    read_result = repo.get(episode.id)
+    db_session.expunge_all()
+    locked_result = repo.get(episode.id, for_update=True)
+
+    assert read_result is not None
+    assert locked_result is not None
+    assert locked_result.id == read_result.id
+    assert locked_result.client_id == read_result.client_id
+    assert locked_result.status == read_result.status
+    assert len(locked_result.memberships) == len(read_result.memberships)
+    assert len(locked_result.responsibility) == len(read_result.responsibility)
+    assert len(locked_result.faces) == len(read_result.faces)

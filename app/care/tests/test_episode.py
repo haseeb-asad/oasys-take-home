@@ -192,11 +192,11 @@ class TestAddMember:
 
 
 # --------------------------------------------------------------------------- #
-# start_coverage
+# add_coverage
 # --------------------------------------------------------------------------- #
-class TestStartCoverage:
+class TestAddCoverage:
     def test_effective_window(self, episode: Episode) -> None:
-        episode.start_coverage(
+        episode.add_coverage(
             provider_id=PROVIDER_B,
             role=Role.PHYSIOTHERAPIST,
             effective_from=at(8),
@@ -210,7 +210,7 @@ class TestStartCoverage:
         assert episode.is_current_member(PROVIDER_B, at(11)) is False  # after
 
     def test_coverage_does_not_change_responsibility(self, episode: Episode) -> None:
-        episode.start_coverage(
+        episode.add_coverage(
             provider_id=PROVIDER_B,
             role=Role.PHYSIOTHERAPIST,
             effective_from=at(8),
@@ -223,7 +223,7 @@ class TestStartCoverage:
         assert len(episode.responsibility) == 1
 
     def test_coverage_does_not_change_face(self, episode: Episode) -> None:
-        episode.start_coverage(
+        episode.add_coverage(
             provider_id=PROVIDER_B,
             role=Role.PHYSIOTHERAPIST,
             effective_from=at(8),
@@ -236,7 +236,7 @@ class TestStartCoverage:
         assert len(episode.faces) == 1
 
     def test_future_dated_coverage_allowed(self, episode: Episode) -> None:
-        m = episode.start_coverage(
+        m = episode.add_coverage(
             provider_id=PROVIDER_B,
             role=Role.PHYSIOTHERAPIST,
             effective_from=at(20),
@@ -249,7 +249,7 @@ class TestStartCoverage:
     def test_closed_rejected(self, episode: Episode) -> None:
         episode.close(now=at(16))
         with pytest.raises(EpisodeClosed):
-            episode.start_coverage(
+            episode.add_coverage(
                 provider_id=PROVIDER_B,
                 role=Role.PHYSIOTHERAPIST,
                 effective_from=at(17),
@@ -260,7 +260,7 @@ class TestStartCoverage:
 
     def test_self_treatment_rejected(self, episode: Episode) -> None:
         with pytest.raises(SelfTreatment):
-            episode.start_coverage(
+            episode.add_coverage(
                 provider_id=CLIENT,
                 role=Role.PHYSIOTHERAPIST,
                 effective_from=at(8),
@@ -271,7 +271,7 @@ class TestStartCoverage:
 
     def test_invalid_window_rejected(self, episode: Episode) -> None:
         with pytest.raises(ValueError):
-            episode.start_coverage(
+            episode.add_coverage(
                 provider_id=PROVIDER_B,
                 role=Role.PHYSIOTHERAPIST,
                 effective_from=at(10),
@@ -330,7 +330,7 @@ class TestAssignResponsible:
 
     def test_expired_member_rejected_at_exact_to(self, episode: Episode) -> None:
         # B covers [4, 8); at exactly 8 the membership is no longer effective.
-        episode.start_coverage(
+        episode.add_coverage(
             provider_id=PROVIDER_B,
             role=Role.PHYSIOTHERAPIST,
             effective_from=at(4),
@@ -426,7 +426,7 @@ class TestSetFace:
             episode.set_face(provider_id=PROVIDER_B, now=at(5), change_reason="early")
 
     def test_expired_member_rejected_at_exact_to(self, episode: Episode) -> None:
-        episode.start_coverage(
+        episode.add_coverage(
             provider_id=PROVIDER_B,
             role=Role.PHYSIOTHERAPIST,
             effective_from=at(4),
@@ -646,7 +646,7 @@ class TestLifecycleIntegration:
             provider_id=PROVIDER_B, role=Role.PHYSICIAN, now=at(4), change_reason="add patel"
         )
         # Wk8: Lee(C) covers [8,10).
-        episode.start_coverage(
+        episode.add_coverage(
             provider_id=PROVIDER_C,
             role=Role.PHYSIOTHERAPIST,
             effective_from=at(8),

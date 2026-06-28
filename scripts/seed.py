@@ -281,12 +281,15 @@ def _ensure_member(
     now: datetime,
     effective_from: datetime | None = None,
     effective_to: datetime | None = None,
+    covering_for: UUID | None = None,
 ) -> Episode:
     """Add ``provider_id`` as a member if absent; return the (updated) aggregate.
 
     Gate: existence-by-provider over ALL memberships (time-independent), so a
     future-dated coverage row is deduped on a re-run too. The returned aggregate
     is threaded through successive calls so each gate sees prior additions.
+    ``covering_for`` routes the creation through ``add_coverage`` when set (same
+    semantics as the API path; see ``service.add_member``).
     """
     if any(m.provider_id == provider_id for m in episode.memberships):
         return episode
@@ -299,6 +302,7 @@ def _ensure_member(
         now=now,
         effective_from=effective_from,
         effective_to=effective_to,
+        covering_for=covering_for,
     )
 
 
@@ -432,6 +436,7 @@ def seed(session: Session, *, now: datetime = SEED_EPOCH) -> SaraWorld:
         now=now,
         effective_from=now + _COVERAGE_FROM,
         effective_to=now + _COVERAGE_TO,
+        covering_for=khan,
     )
 
     # 12: Prior Rehab (Khan Solo Practice), Khan responsible + face, opened then CLOSED.
