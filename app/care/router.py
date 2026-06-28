@@ -119,6 +119,7 @@ def add_member(
         now=now,
         effective_from=payload.effective_from,
         effective_to=payload.effective_to,
+        covering_for=payload.covering_for,
     )
     session.commit()
     return EpisodeOut.from_episode(episode, now)

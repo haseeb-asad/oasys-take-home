@@ -20,7 +20,7 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import BaseModel, ConfigDict, StringConstraints, model_validator
 
 from app.care.domain.episode import Episode
 from app.care.domain.value_objects import Role
@@ -54,13 +54,29 @@ class EpisodeCreate(BaseModel):
 
 
 class MemberCreate(BaseModel):
-    """Add-member request (an optional bounded window folds the coverage case)."""
+    """Add-member request (an optional bounded window folds the coverage case).
+
+    ``covering_for`` is an informational coverage marker: when set it names the
+    provider being covered and routes the call through ``episode.start_coverage``
+    instead of ``episode.add_member``. It is NOT persisted and NOT FK-checked.
+    ``effective_to`` is REQUIRED when ``covering_for`` is set (coverage must have a
+    hard end date so access expires automatically).
+    """
 
     provider_id: UUID
     role: Role
     change_reason: _ChangeReason
     effective_from: datetime | None = None
     effective_to: datetime | None = None
+    covering_for: UUID | None = None
+
+    @model_validator(mode="after")
+    def _require_effective_to_when_covering(self) -> MemberCreate:
+        if self.covering_for is not None and self.effective_to is None:
+            raise ValueError(
+                "effective_to is required when covering_for is set (coverage must be bounded)"
+            )
+        return self
 
 
 class MemberEnd(BaseModel):

@@ -85,16 +85,35 @@ def add_member(
     now: datetime,
     effective_from: datetime | None = None,
     effective_to: datetime | None = None,
+    covering_for: UUID | None = None,
 ) -> Episode:
-    """Add a member (optionally a bounded coverage window) and persist the aggregate."""
-    episode.add_member(
-        provider_id=provider_id,
-        role=role,
-        now=now,
-        change_reason=change_reason,
-        effective_from=effective_from,
-        effective_to=effective_to,
-    )
+    """Add a member (optionally a bounded coverage window) and persist the aggregate.
+
+    When ``covering_for`` is set, the call is routed through
+    ``episode.start_coverage`` (which requires ``effective_to``; the schema
+    validator already guarantees it). Otherwise the existing ``episode.add_member``
+    path is taken. ``covering_for`` is informational only: it is NOT persisted and
+    NOT FK-checked.
+    """
+    if covering_for is not None:
+        assert effective_to is not None  # narrowed by the schema validator; assert for mypy
+        episode.start_coverage(
+            provider_id=provider_id,
+            role=role,
+            effective_from=effective_from or now,
+            effective_to=effective_to,
+            now=now,
+            change_reason=change_reason,
+        )
+    else:
+        episode.add_member(
+            provider_id=provider_id,
+            role=role,
+            now=now,
+            change_reason=change_reason,
+            effective_from=effective_from,
+            effective_to=effective_to,
+        )
     repo.save(episode)
     return episode
 
