@@ -469,7 +469,7 @@ def test_scenario_s7_handoff_is_append_only_two_rows(
     assert len(patel_rows) == 1 and patel_rows[0]["effective_to"] is None  # open
 
 
-# --- covering_for (coverage marker, commit 3) --------------------------------
+# --- covering_for coverage path ---------------------------------------------
 
 
 def test_scenario_coverage_via_covering_for_marker_creates_bounded_membership(

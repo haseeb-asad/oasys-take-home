@@ -5,8 +5,8 @@ DB-free ``world_ids()`` to inject the Sara world's DETERMINISTIC uuid5 ids (plus
 the seed login password) into a single static HTML page. The page's own
 JavaScript then replays the care-team access scenarios against the SAME-ORIGIN
 live ``/v1`` API: all are non-mutating (reads plus denied writes) except a final
-short, self-expiring coverage write that auto-reverts within ~30s, so the demo is
-repeatable and never degrades the seed.
+short coverage write whose membership expires within ~30s, so the demo requires
+no manual cleanup.
 
 Why deterministic ids and not a by-business-key lookup: ``reason`` (episode) and
 ``name`` (org) are NOT unique columns - the public API lets anyone open an episode

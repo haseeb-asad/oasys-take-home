@@ -3,10 +3,9 @@
 Orchestrates the ``EpisodeRepository`` port and the ``Episode`` aggregate; holds no
 infrastructure (no FastAPI / SQLAlchemy / Pydantic). ``now`` (tz-aware) and
 ``new_id`` are injected so opened_at / the episode id are deterministic and
-testable (no hidden clock or uuid). The SQLAlchemy adapter and any future ``/v1``
-routes wire these use cases at the edge; this commit ships the persistence +
-open/read surface only (the mutation orchestrators - reassign, end-member, close -
-land in a later commit).
+testable (no hidden clock or uuid). The SQLAlchemy adapter and ``/v1`` routes wire
+these use cases at the edge; this module covers episode open/read, team
+management, close, and clinical/rehab use cases.
 """
 
 from __future__ import annotations

@@ -1,10 +1,10 @@
 """Application factory: build the FastAPI app, mount routers, wire dependencies.
 
-The factory mounts the per-context routers (identity + care now; organization in
-a later commit), registers the central exception handlers so domain exceptions
-surface as RFC 7807 responses, and exposes a liveness probe. Building the app
-still reads no environment: the router's config/database dependencies are lazy
-factories that only run per request.
+The factory mounts the identity, care, and demo routers, registers the central
+exception handlers so domain exceptions surface as RFC 7807 responses, and
+exposes a liveness probe. Building the app still reads no environment: the
+router's config/database dependencies are lazy factories that only run per
+request.
 """
 
 from fastapi import FastAPI

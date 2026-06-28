@@ -3,8 +3,8 @@
 Orchestrates the two repository ports; holds no infrastructure (no FastAPI /
 SQLAlchemy / Pydantic). ``now`` (tz-aware) and ``new_id`` are injected so
 id/created_at/effective_from are deterministic and testable (no hidden clock or
-uuid). The SQLAlchemy adapters and any future ``/v1`` routes / seed wire these
-use cases at the edge; this commit ships the persistence + use-case surface only.
+uuid). The SQLAlchemy adapters and seed wire these use cases at the edge; future
+HTTP routes can use the same service functions.
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ def has_active_admin_membership(
     Reads every row for the pair (the repo applies no filter) and lets the domain
     decide: an active admin exists iff some row ``is_admin and is_active_at(now)``
     (half-open ``[from, to)``). This proves an active admin *membership* only. The
-    authz ``ProfileDirectory.is_active_org_admin`` port (wired in commit 9) means
+    authz ``ProfileDirectory.is_active_org_admin`` port, implemented by the authz adapter, means
     "active ``org_staff`` PROFILE **AND** active admin membership", so that
     adapter ANDs the identity/profile-state check with this read. The org context
     does not know about Profiles and never imports authz.

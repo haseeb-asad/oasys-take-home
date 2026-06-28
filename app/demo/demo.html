@@ -140,8 +140,8 @@
     decoded token, and the authorization reasoning behind the outcome. All but one
     scenario are read-only (reads and denied writes only); the final scenario
     performs one real, short, self-expiring write (a bounded coverage membership)
-    that auto-reverts within about 30 seconds, so playing the page never leaves the
-    seeded Sara world changed. Play one at a time or use Play all.
+    that expires within about 30 seconds, so active access returns to the seeded
+    state without manual cleanup. Play one at a time or use Play all.
   </p>
 
   <div id="seedNotice" class="notice" hidden>

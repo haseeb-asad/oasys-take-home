@@ -898,7 +898,7 @@ def test_manage_team_routes_load_with_lock_and_reads_do_not(
     )
 
 
-# --- covering_for (coverage marker, commit 3) ---------------------------------
+# --- covering_for coverage path ----------------------------------------------
 
 
 def test_add_member_with_covering_for_creates_bounded_coverage_201(
