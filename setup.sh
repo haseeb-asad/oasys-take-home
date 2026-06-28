@@ -58,7 +58,6 @@ esac
 log "Installing deps with pip…"
 ./.venv/bin/python -m pip install --quiet --upgrade pip
 ./.venv/bin/python -m pip install --quiet -r requirements.txt
-RUN_PREFIX="./.venv/bin"
 
 # --- 5. .env ---
 [ -f .env ] || { log "Creating .env from .env.example…"; cp .env.example .env; }
