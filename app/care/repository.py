@@ -36,6 +36,7 @@ from sqlalchemy.orm import Session
 
 from app.care.domain.clinical import ClinicalRecord, RehabAssessment
 from app.care.domain.episode import Episode, _EffectiveDatedRow
+from app.care.domain.exceptions import OverlappingPeriod
 from app.care.orm import (
     BookingContactModel,
     ClinicalRecordModel,
@@ -60,6 +61,7 @@ _Row = TypeVar("_Row", bound=_EffectiveDatedRow)
 _Model = TypeVar("_Model", bound=_CareChildModel)
 
 _FK_VIOLATION = "23503"  # Postgres SQLSTATE: foreign_key_violation.
+_EXCLUSION_VIOLATION = "23P01"  # Postgres SQLSTATE: exclusion_violation.
 
 
 def _is_foreign_key_violation(exc: IntegrityError) -> bool:
@@ -69,10 +71,24 @@ def _is_foreign_key_violation(exc: IntegrityError) -> bool:
     ``sqlstate`` lives on the wrapped psycopg cause but may be absent, so if it
     cannot be positively identified as 23503 we return False and the caller
     re-raises. This narrows translation to dangling references ONLY: a CHECK
-    (23514) or the non-deferrable no-overlap EXCLUDE (23P01) stays a re-raised
-    ``IntegrityError`` (its own mapping / 500), never an ``UnknownReference``.
+    (23514) stays a re-raised ``IntegrityError`` (500); the no-overlap EXCLUDE
+    (23P01) is translated separately by ``_is_exclusion_violation``.
     """
     return getattr(exc.orig, "sqlstate", None) == _FK_VIOLATION
+
+
+def _is_exclusion_violation(exc: IntegrityError) -> bool:
+    """True iff ``exc`` is a Postgres exclusion violation (SQLSTATE 23P01).
+
+    Raised by the ``EXCLUDE USING gist`` no-overlap constraints on
+    ``responsibility_assignments`` / ``booking_contacts`` when two concurrent
+    writes slip past the in-memory ``_assert_no_overlap`` guard and the DB
+    rejects the second INSERT at flush. Scoped to the only two EXCLUDE
+    constraints in the schema; a future semantically different EXCLUDE on this
+    save path would need constraint-name filtering. Defensive: missing
+    ``sqlstate`` returns False (caller re-raises the raw ``IntegrityError``).
+    """
+    return getattr(exc.orig, "sqlstate", None) == _EXCLUSION_VIOLATION
 
 
 def _violated_constraint_name(exc: IntegrityError) -> str | None:
@@ -116,18 +132,18 @@ class SqlAlchemyEpisodeRepository:
         )
 
     def save(self, episode: Episode) -> None:
-        """Upsert the aggregate, translating a dangling FK to ``UnknownReference``.
+        """Upsert the aggregate, translating integrity violations to typed exceptions.
 
         The whole two-phase upsert (see the module docstring) runs inside a SAVEPOINT
         (``begin_nested``): a client-supplied foreign key with no parent row - a bad
         ``client_id`` / ``managing_org_id`` on the episode root (Phase A) or a bad
         ``provider_id`` on a child row (Phase B) - trips a Postgres FK violation on
-        flush, which is translated to a typed ``UnknownReference`` (-> 422) instead
-        of escaping as a raw ``IntegrityError`` (-> 500). The context manager
-        guarantees the SAVEPOINT is released on success or rolled back on error, so a
-        translated failure never leaves a half-open SAVEPOINT and the session stays
-        usable. Any non-FK violation (the no-overlap EXCLUDE 23P01, a CHECK 23514) is
-        re-raised untouched.
+        flush, which is translated to a typed ``UnknownReference`` (-> 422). A
+        no-overlap EXCLUDE violation (23P01) on ``responsibility_assignments`` or
+        ``booking_contacts`` is translated to ``OverlappingPeriod`` (-> 409). Any
+        other violation (e.g. a CHECK 23514) is re-raised untouched (-> 500). The
+        SAVEPOINT is released on success or rolled back on error, so a translated
+        failure never leaves a half-open SAVEPOINT and the session stays usable.
         """
         try:
             with self._session.begin_nested():
@@ -135,6 +151,8 @@ class SqlAlchemyEpisodeRepository:
         except IntegrityError as exc:
             if _is_foreign_key_violation(exc):
                 raise UnknownReference(_violated_constraint_name(exc)) from exc
+            if _is_exclusion_violation(exc):
+                raise OverlappingPeriod(episode.id) from exc
             raise
 
     def _upsert(self, episode: Episode) -> None:

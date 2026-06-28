@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -29,10 +30,14 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.care.domain.episode import Episode, EpisodeStatus
-from app.care.domain.exceptions import EpisodeClosed
-from app.care.domain.value_objects import Role
-from app.care.repository import SqlAlchemyEpisodeRepository
+from app.care.domain.episode import BookingContact, Episode, EpisodeStatus, Responsibility
+from app.care.domain.exceptions import EpisodeClosed, OverlappingPeriod
+from app.care.domain.value_objects import EffectivePeriod, Role
+from app.care.repository import (
+    SqlAlchemyEpisodeRepository,
+    _is_exclusion_violation,
+    _violated_constraint_name,
+)
 from app.core.exceptions import UnknownReference
 from app.identity.domain.entities import Identity
 from app.identity.repository import SqlAlchemyIdentityRepository
@@ -546,3 +551,112 @@ def test_child_fk_violation_missing_episode_raises(db_session: Session) -> None:
             {"episode_id": uuid4(), "provider_id": world.provider_a, "ts": _T0},
         )
     assert "fk_episode_memberships_episode_id_episodes" in str(exc_info.value.orig)
+
+
+# --- exclusion violation translation: 23P01 -> OverlappingPeriod (409) --------
+
+
+def test_is_exclusion_violation_true_for_23P01() -> None:
+    orig = SimpleNamespace(sqlstate="23P01")
+    exc = IntegrityError("stmt", {}, orig)  # type: ignore[arg-type]
+    assert _is_exclusion_violation(exc) is True
+
+
+def test_is_exclusion_violation_false_for_23503() -> None:
+    orig = SimpleNamespace(sqlstate="23503")
+    exc = IntegrityError("stmt", {}, orig)  # type: ignore[arg-type]
+    assert _is_exclusion_violation(exc) is False
+
+
+def test_is_exclusion_violation_false_for_23514() -> None:
+    orig = SimpleNamespace(sqlstate="23514")
+    exc = IntegrityError("stmt", {}, orig)  # type: ignore[arg-type]
+    assert _is_exclusion_violation(exc) is False
+
+
+def test_is_exclusion_violation_false_when_sqlstate_absent() -> None:
+    orig = SimpleNamespace()  # no sqlstate attribute
+    exc = IntegrityError("stmt", {}, orig)  # type: ignore[arg-type]
+    assert _is_exclusion_violation(exc) is False
+
+
+def test_save_exclusion_violation_raises_overlapping_period(db_session: Session) -> None:
+    # Bypass the in-memory _assert_no_overlap guard by appending directly to
+    # the private list, so only the DB EXCLUDE fires.
+    # Fresh id -> Phase B INSERT (not Phase A update); existing provider_id avoids 23503.
+    world = _world(db_session)
+    repo = SqlAlchemyEpisodeRepository(db_session)
+    episode = _open(world)  # A responsible [_T0, None)
+    repo.save(episode)
+    db_session.expunge_all()
+    loaded = repo.get(episode.id)
+    assert loaded is not None
+    loaded._responsibility.append(
+        Responsibility(
+            id=uuid4(),
+            provider_id=world.provider_b,
+            period=EffectivePeriod(_T1, None),
+            change_reason="forced-overlap",
+        )
+    )
+    with pytest.raises(OverlappingPeriod) as exc_info:
+        repo.save(loaded)
+    assert exc_info.value.episode_id == episode.id
+    # Prove it came from the DB, not a future in-memory guard.
+    cause = exc_info.value.__cause__
+    assert isinstance(cause, IntegrityError)
+    assert getattr(cause.orig, "sqlstate", None) == "23P01"
+    assert _violated_constraint_name(cause) == "responsibility_assignments_no_overlap"
+
+
+def test_save_exclusion_violation_raises_overlapping_period_on_booking_contacts(
+    db_session: Session,
+) -> None:
+    world = _world(db_session)
+    repo = SqlAlchemyEpisodeRepository(db_session)
+    episode = _open(world)  # face A [_T0, None)
+    repo.save(episode)
+    db_session.expunge_all()
+    loaded = repo.get(episode.id)
+    assert loaded is not None
+    loaded._faces.append(
+        BookingContact(
+            id=uuid4(),
+            provider_id=world.provider_b,
+            period=EffectivePeriod(_T1, None),
+            change_reason="forced-overlap",
+        )
+    )
+    with pytest.raises(OverlappingPeriod) as exc_info:
+        repo.save(loaded)
+    assert exc_info.value.episode_id == episode.id
+    cause = exc_info.value.__cause__
+    assert isinstance(cause, IntegrityError)
+    assert getattr(cause.orig, "sqlstate", None) == "23P01"
+    assert _violated_constraint_name(cause) == "booking_contacts_no_overlap"
+
+
+def test_save_exclusion_violation_session_remains_usable(db_session: Session) -> None:
+    # After OverlappingPeriod, the SAVEPOINT must be cleanly rolled back so the
+    # session stays usable for further reads.
+    world = _world(db_session)
+    repo = SqlAlchemyEpisodeRepository(db_session)
+    episode = _open(world)
+    repo.save(episode)
+    db_session.expunge_all()
+    loaded = repo.get(episode.id)
+    assert loaded is not None
+    loaded._responsibility.append(
+        Responsibility(
+            id=uuid4(),
+            provider_id=world.provider_b,
+            period=EffectivePeriod(_T1, None),
+            change_reason="forced-overlap",
+        )
+    )
+    with pytest.raises(OverlappingPeriod):
+        repo.save(loaded)
+    # Session is still usable after the SAVEPOINT rollback.
+    reloaded = repo.get(episode.id)
+    assert reloaded is not None
+    assert reloaded.id == episode.id
