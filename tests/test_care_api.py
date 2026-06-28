@@ -883,6 +883,20 @@ def test_manage_team_routes_load_with_lock_and_reads_do_not(
         f"GET clinical-records must call get(for_update=False); recorded={recorded}"
     )
 
+    # Write route: POST clinical-records uses _WriteClinical -> for_update=True.
+    # Authorization depends on the episode's closed/active state, so a concurrent
+    # close could bypass the WRITE_CLINICAL guard without this lock.
+    recorded.clear()
+    resp = client.post(
+        f"{_EPISODES}/{world.general}/clinical-records",
+        headers=_auth(mint_token(str(world.physician))),
+        json={"body": "lock check note"},
+    )
+    assert resp.status_code == 201
+    assert any(v is True for v in recorded), (
+        f"POST clinical-records must call get(for_update=True); recorded={recorded}"
+    )
+
 
 # --- covering_for (coverage marker, commit 3) ---------------------------------
 

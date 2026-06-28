@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from unittest import mock
 from uuid import UUID
 
 from app.care.domain.clinical import ClinicalRecord, RehabAssessment
@@ -256,3 +257,58 @@ def test_list_rehab_assessments_delegates() -> None:
     )
     repo.add(assessment)
     assert list_rehab_assessments(repo, EPISODE_ID) == [assessment]
+
+
+# --- covering_for routing: prove start_coverage vs add_member dispatch --------
+
+
+def test_add_member_with_covering_for_calls_start_coverage() -> None:
+    """Service routes covering_for to episode.start_coverage, not episode.add_member.
+
+    If the service branch were reverted to always call add_member, spy_start would
+    record zero calls and spy_start.assert_called_once() would fail, pinning the
+    routing decision.
+    """
+    repo = FakeEpisodeRepository()
+    episode = _open(repo)
+    with (
+        mock.patch.object(episode, "start_coverage", wraps=episode.start_coverage) as spy_start,
+        mock.patch.object(episode, "add_member", wraps=episode.add_member) as spy_add,
+    ):
+        add_member(
+            repo,
+            episode,
+            provider_id=PROVIDER_B,
+            role=Role.PHYSICIAN,
+            change_reason="covering",
+            now=at(1),
+            effective_to=at(3),
+            covering_for=PROVIDER_A,
+        )
+    spy_start.assert_called_once()
+    spy_add.assert_not_called()
+
+
+def test_add_member_without_covering_for_calls_add_member() -> None:
+    """Service routes a plain add to episode.add_member, not episode.start_coverage.
+
+    If the service branch were reverted to always call start_coverage, spy_add would
+    record zero calls and spy_add.assert_called_once() would fail, pinning the
+    routing decision.
+    """
+    repo = FakeEpisodeRepository()
+    episode = _open(repo)
+    with (
+        mock.patch.object(episode, "start_coverage", wraps=episode.start_coverage) as spy_start,
+        mock.patch.object(episode, "add_member", wraps=episode.add_member) as spy_add,
+    ):
+        add_member(
+            repo,
+            episode,
+            provider_id=PROVIDER_B,
+            role=Role.PHYSICIAN,
+            change_reason="add",
+            now=at(1),
+        )
+    spy_add.assert_called_once()
+    spy_start.assert_not_called()
