@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -820,3 +821,64 @@ def test_client_denied_clinical_403(
         headers=_auth(mint_token(str(world.client))),
     )
     assert resp.status_code == 403
+
+
+# --- SELECT FOR UPDATE wiring: mutating routes lock, reads do not (T5) --------
+
+
+def test_manage_team_routes_load_with_lock_and_reads_do_not(
+    client: TestClient,
+    db_session: Session,
+    clock: datetime,
+    mint_token: Callable[..., str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mutating (MANAGE_TEAM) routes pass for_update=True; read routes pass False."""
+    world = _world(db_session, clock)
+
+    recorded: list[bool] = []
+    original_get = SqlAlchemyEpisodeRepository.get
+
+    def recording_get(
+        self: SqlAlchemyEpisodeRepository, episode_id: UUID, *, for_update: bool = False
+    ) -> object:
+        recorded.append(for_update)
+        return original_get(self, episode_id, for_update=for_update)
+
+    monkeypatch.setattr(SqlAlchemyEpisodeRepository, "get", recording_get)
+
+    # Mutating route: PUT responsibility uses _ManageTeam -> for_update=True.
+    recorded.clear()
+    resp = client.put(
+        f"{_EPISODES}/{world.general}/responsibility",
+        headers=_auth(mint_token(str(world.physiotherapist))),
+        params={"acting_as": "provider"},
+        json={"provider_id": str(world.physician), "change_reason": "handoff"},
+    )
+    assert resp.status_code == 200
+    assert any(v is True for v in recorded), (
+        f"PUT responsibility must call get(for_update=True); recorded={recorded}"
+    )
+
+    # Read route: GET episode uses _ReadEpisode -> for_update=False.
+    recorded.clear()
+    resp = client.get(
+        f"{_EPISODES}/{world.general}",
+        headers=_auth(mint_token(str(world.physician))),
+        params={"acting_as": "provider"},
+    )
+    assert resp.status_code == 200
+    assert all(v is False for v in recorded), (
+        f"GET episode must call get(for_update=False); recorded={recorded}"
+    )
+
+    # Read route: GET clinical-records uses _ReadClinical -> for_update=False.
+    recorded.clear()
+    resp = client.get(
+        f"{_EPISODES}/{world.general}/clinical-records",
+        headers=_auth(mint_token(str(world.physician))),
+    )
+    assert resp.status_code == 200
+    assert all(v is False for v in recorded), (
+        f"GET clinical-records must call get(for_update=False); recorded={recorded}"
+    )

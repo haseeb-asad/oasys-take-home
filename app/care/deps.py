@@ -101,7 +101,7 @@ def require_profile(surface: ProfileType) -> Callable[..., ActorContext]:
 
 
 def require_episode_capability(
-    capability: Capability, *surfaces: ProfileType
+    capability: Capability, *surfaces: ProfileType, for_update: bool = False
 ) -> Callable[..., Episode]:
     """Layer 1 + load + Layer 2: gate ``capability`` on the path episode.
 
@@ -109,6 +109,10 @@ def require_episode_capability(
     loads the episode (404 if absent), then requires ``capability`` via the PDP
     over the real ``ProfileDirectory`` (403 ``Forbidden`` otherwise). Returns the
     authorized ``Episode`` to the thin router (which makes a single service call).
+
+    ``for_update=True`` acquires a ``SELECT ... FOR UPDATE OF episodes`` row lock
+    so that concurrent mutators of the same episode each act on fresh committed
+    state; read-only routes leave this at the default False.
     """
 
     def dependency(
@@ -121,7 +125,9 @@ def require_episode_capability(
         surface = _resolve_surface(acting_as, surfaces)
         _assert_holds_surface(SqlAlchemyProfileRepository(session), current_user.id, surface)
         actor = ActorContext(identity_id=current_user.id, profile_type=surface)
-        episode = get_episode(SqlAlchemyEpisodeRepository(session), episode_id)
+        episode = get_episode(
+            SqlAlchemyEpisodeRepository(session), episode_id, for_update=for_update
+        )
         if episode is None:
             raise NotFound()
         Pdp(build_profile_directory(session)).require(

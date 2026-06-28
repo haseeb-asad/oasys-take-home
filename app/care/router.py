@@ -51,7 +51,7 @@ _READ = (ProfileType.PROVIDER, ProfileType.CLIENT, ProfileType.ORG_STAFF)
 
 # Capability gates, parametrized once (the dependency objects are created at import).
 _ManageTeam = Annotated[
-    Episode, Depends(require_episode_capability(Capability.MANAGE_TEAM, *_TEAM))
+    Episode, Depends(require_episode_capability(Capability.MANAGE_TEAM, *_TEAM, for_update=True))
 ]
 _ReadEpisode = Annotated[
     Episode, Depends(require_episode_capability(Capability.VIEW_BASIC_PROFILE, *_READ))

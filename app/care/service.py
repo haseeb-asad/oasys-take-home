@@ -60,9 +60,11 @@ def open_episode(
     return episode
 
 
-def get_episode(repo: EpisodeRepository, episode_id: UUID) -> Episode | None:
+def get_episode(
+    repo: EpisodeRepository, episode_id: UUID, *, for_update: bool = False
+) -> Episode | None:
     """Return the Episode aggregate with ``episode_id`` if it exists, else ``None``."""
-    return repo.get(episode_id)
+    return repo.get(episode_id, for_update=for_update)
 
 
 # --- team-management orchestrators ------------------------------------------ #
