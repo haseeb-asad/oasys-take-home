@@ -218,10 +218,10 @@ const ADD_MIKE = { provider_id: SEED.mike, role: "physician", change_reason: "de
 function coverMikeBody() {
   return {
     provider_id: SEED.mike,
-    role: "physiotherapist",
+    role: "personal_trainer",
     covering_for: SEED.khan,
     effective_to: new Date(Date.now() + 30000).toISOString(),
-    change_reason: "demo: Mike covers the Shoulder episode briefly while Khan is away",
+    change_reason: "demo: Mike provides brief interim coverage while Khan is away",
   };
 }
 
@@ -259,18 +259,6 @@ const SCENARIOS = [
     path: "/v1/episodes/" + SHOULDER + "/clinical-records",
     // No static expected: for a timeBased scenario the expected status is computed at
     // play time from `new Date()` vs the half-open [coverage_from, coverage_to) window.
-  },
-  {
-    id: "s3cover",
-    tag: "S3 coverage",
-    title: "Mike gets short, self-expiring coverage on Shoulder",
-    actor: "khan",
-    proves: "The covering_for marker routes an add-member through start_coverage with a mandatory end date, persisting a real bounded membership that auto-expires against the server clock; no cleanup job ends it.",
-    method: "POST",
-    path: "/v1/episodes/" + SHOULDER + "/members?acting_as=provider",
-    body: coverMikeBody,
-    expected: 201,
-    why: "Khan is the responsible provider on Shoulder, so he holds MANAGE_TEAM and the request is authorized. The covering_for marker routes through episode.start_coverage, which makes effective_to mandatory, and persists a real bounded coverage membership for Mike (201). The window is about 30 seconds, so the membership auto-expires against the server clock (the same half-open rule S3 demonstrates) and the active team returns to its seeded state with no manual end. Replaying just creates another short, self-expiring window.",
   },
   {
     id: "s6deny-read",
@@ -352,6 +340,18 @@ const SCENARIOS = [
     expected: 403,
     why: "The PDP strips the act capabilities (WRITE_CLINICAL, MANAGE_TEAM) once status is closed, so the write is denied (403) before the service runs; nothing mutates.",
   },
+  {
+    id: "s3cover",
+    tag: "S3 coverage",
+    title: "Mike gets short, self-expiring coverage on Shoulder",
+    actor: "khan",
+    proves: "The covering_for marker routes an add-member through start_coverage with a mandatory end date, persisting a real bounded membership that auto-expires; no cleanup job ends it. Run last because, unlike every scenario above, it writes.",
+    method: "POST",
+    path: "/v1/episodes/" + SHOULDER + "/members?acting_as=provider",
+    body: coverMikeBody,
+    expected: 201,
+    why: "Khan is the responsible provider on Shoulder, so he holds MANAGE_TEAM and the request is authorized. The covering_for marker routes through episode.start_coverage, which makes effective_to mandatory, and persists a real bounded coverage membership for Mike (201): a genuine write, run last so it does not disturb the read-only scenarios above. Mike joins as a personal trainer, a role with no clinical access, so even while covering he cannot read clinical records. The window is about 30 seconds, so the membership auto-expires against the server clock (the same half-open rule S3 demonstrates) and the active team returns to its seeded state with no manual end (a bounded coverage cannot be re-ended).",
+  },
 ];
 
 // --- time-aware evaluation (S3): now vs Lee's injected coverage window -------
@@ -413,9 +413,7 @@ async function ensureLogin(handle) {
 
 async function runRequest(sc, token) {
   const opts = { method: sc.method, headers: { "Authorization": "Bearer " + token } };
-  // A scenario body may be a function, evaluated at play time (e.g. a coverage window
-  // computed from the current clock), or a plain static object.
-  const rawBody = typeof sc.body === "function" ? sc.body() : sc.body;
+  const rawBody = bodyOf(sc);
   if (rawBody) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(rawBody);
@@ -529,21 +527,29 @@ function sectionActorToken(sc, token, decoded) {
 
 // --- section 2: request (method, headers, body, copy-as-curl) ----------------
 
+// A scenario body may be a function evaluated at play time (e.g. a coverage window
+// from the current clock) or a plain static object; resolve it for sending + display.
+function bodyOf(sc) {
+  return typeof sc.body === "function" ? sc.body() : sc.body;
+}
+
 function buildCurl(sc, token) {
   const url = window.location.origin + sc.path;
   const lines = [
     "curl -X " + sc.method + " '" + url + "'",
     "  -H 'Authorization: Bearer " + token + "'",
   ];
-  if (sc.body) {
+  const body = bodyOf(sc);
+  if (body) {
     lines.push("  -H 'Content-Type: application/json'");
-    lines.push("  -d '" + JSON.stringify(sc.body) + "'");
+    lines.push("  -d '" + JSON.stringify(body) + "'");
   }
   return lines.join(" \\\n");
 }
 
 function sectionRequest(sc, token) {
   const s = section("2 · Request");
+  const body = bodyOf(sc);
   const line = el("div", "reqline");
   line.appendChild(el("span", "method", sc.method));
   line.appendChild(document.createTextNode(sc.path));
@@ -554,7 +560,7 @@ function sectionRequest(sc, token) {
   auth.appendChild(el("span", "hk", "Authorization: "));
   auth.appendChild(document.createTextNode("Bearer " + shortToken(token)));
   headers.appendChild(auth);
-  if (sc.body) {
+  if (body) {
     const ct = el("div");
     ct.appendChild(el("span", "hk", "Content-Type: "));
     ct.appendChild(document.createTextNode("application/json"));
@@ -562,10 +568,10 @@ function sectionRequest(sc, token) {
   }
   s.appendChild(headers);
 
-  if (sc.body) {
+  if (body) {
     s.appendChild(el("div", "sec-h", "Body"));
     const pre = el("pre", "mono small");
-    pre.textContent = JSON.stringify(sc.body, null, 2);
+    pre.textContent = JSON.stringify(body, null, 2);
     s.appendChild(pre);
   }
 
