@@ -904,7 +904,7 @@ def test_manage_team_routes_load_with_lock_and_reads_do_not(
 def test_add_member_with_covering_for_creates_bounded_coverage_201(
     client: TestClient, db_session: Session, clock: datetime, mint_token: Callable[..., str]
 ) -> None:
-    """covering_for routes through start_coverage: bounded row, change_reason preserved."""
+    """covering_for routes through add_coverage: bounded row, change_reason preserved."""
     world = _world(db_session, clock)
     effective_to = (clock + timedelta(weeks=4)).isoformat()
     resp = client.post(

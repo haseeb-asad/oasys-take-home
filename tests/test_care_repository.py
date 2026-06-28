@@ -182,11 +182,11 @@ def test_save_persists_added_member(db_session: Session) -> None:
     assert b_rows[0].role is Role.NUTRITION_COACH
 
 
-def test_start_coverage_membership_round_trip(db_session: Session) -> None:
+def test_add_coverage_membership_round_trip(db_session: Session) -> None:
     world = _world(db_session)
     repo = SqlAlchemyEpisodeRepository(db_session)
     episode = _open(world)
-    episode.start_coverage(
+    episode.add_coverage(
         provider_id=world.provider_b,
         role=Role.MASSAGE_THERAPIST,
         effective_from=_T1,

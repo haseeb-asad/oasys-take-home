@@ -480,7 +480,7 @@ def test_scenario_coverage_via_covering_for_marker_creates_bounded_membership(
 ) -> None:
     """Khan adds bounded coverage via covering_for; responsibility and face remain his.
 
-    Drives the new start_coverage path through /v1: the cover row is membership-only
+    Drives the new add_coverage path through /v1: the cover row is membership-only
     (responsibility / face unchanged) and carries a hard end date.
     """
     effective_to = (clock + timedelta(weeks=4)).isoformat()

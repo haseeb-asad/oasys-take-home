@@ -17,7 +17,7 @@ class SelfTreatment(DomainError):
     """A provider may not be on the care team of their own episode.
 
     Raised when ``provider_identity_id == client_identity_id`` on
-    ``add_member`` / ``assign_responsible`` / ``start_coverage``. Both ids are
+    ``add_member`` / ``assign_responsible`` / ``add_coverage``. Both ids are
     ``identities.id`` values, so the check is plain identity equality (no
     cross-context lookup inside the aggregate).
     """

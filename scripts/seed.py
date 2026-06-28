@@ -288,7 +288,7 @@ def _ensure_member(
     Gate: existence-by-provider over ALL memberships (time-independent), so a
     future-dated coverage row is deduped on a re-run too. The returned aggregate
     is threaded through successive calls so each gate sees prior additions.
-    ``covering_for`` routes the creation through ``start_coverage`` when set (same
+    ``covering_for`` routes the creation through ``add_coverage`` when set (same
     semantics as the API path; see ``service.add_member``).
     """
     if any(m.provider_id == provider_id for m in episode.memberships):

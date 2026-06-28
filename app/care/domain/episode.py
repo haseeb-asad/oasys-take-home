@@ -296,7 +296,7 @@ class Episode:
         self._memberships.append(membership)
         return membership
 
-    def start_coverage(
+    def add_coverage(
         self,
         *,
         provider_id: UUID,
@@ -306,20 +306,20 @@ class Episode:
         now: datetime,
         change_reason: str,
     ) -> Membership:
-        """A bounded ``add_member`` naming the intent (e.g. "covering for X").
-
-        Coverage is a membership with a hard end date (so access expires
-        automatically); it does NOT touch responsibility or the face — the cover
-        does not become responsible. The window may be future-dated.
+        """A bounded ``add_member`` naming the intent (covering for X): coverage is a
+        membership with a hard end date, so access expires automatically. It does NOT
+        touch responsibility or the face. Keeping the required dates in the signature
+        is what enforces "coverage is bounded"; the body is add_member so the two
+        cannot drift.
         """
-        self._guard_open()
-        self._guard_not_self(provider_id)
-        period = EffectivePeriod(effective_from, effective_to)
-        membership = Membership(
-            provider_id=provider_id, period=period, change_reason=change_reason, role=role
+        return self.add_member(
+            provider_id=provider_id,
+            role=role,
+            now=now,
+            change_reason=change_reason,
+            effective_from=effective_from,
+            effective_to=effective_to,
         )
-        self._memberships.append(membership)
-        return membership
 
     def assign_responsible(
         self, *, provider_id: UUID, now: datetime, change_reason: str

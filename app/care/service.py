@@ -90,14 +90,14 @@ def add_member(
     """Add a member (optionally a bounded coverage window) and persist the aggregate.
 
     When ``covering_for`` is set, the call is routed through
-    ``episode.start_coverage`` (which requires ``effective_to``; the schema
+    ``episode.add_coverage`` (which requires ``effective_to``; the schema
     validator already guarantees it). Otherwise the existing ``episode.add_member``
     path is taken. ``covering_for`` is informational only: it is NOT persisted and
     NOT FK-checked.
     """
     if covering_for is not None:
         assert effective_to is not None  # narrowed by the schema validator; assert for mypy
-        episode.start_coverage(
+        episode.add_coverage(
             provider_id=provider_id,
             role=role,
             effective_from=effective_from or now,

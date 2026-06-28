@@ -57,7 +57,7 @@ class MemberCreate(BaseModel):
     """Add-member request (an optional bounded window folds the coverage case).
 
     ``covering_for`` is an informational coverage marker: when set it names the
-    provider being covered and routes the call through ``episode.start_coverage``
+    provider being covered and routes the call through ``episode.add_coverage``
     instead of ``episode.add_member``. It is NOT persisted and NOT FK-checked.
     ``effective_to`` is REQUIRED when ``covering_for`` is set (coverage must have a
     hard end date so access expires automatically).

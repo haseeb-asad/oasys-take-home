@@ -79,7 +79,7 @@ methods (the ONLY way to mutate it):
   add_member(provider, role, from, change_reason)
   assign_responsible(provider, change_reason)   # rejects if provider is not a current member
   set_face(provider, change_reason, at=now())   # the booking face; rejects non-member; contiguous handoff
-  start_coverage(covering_provider, role, from, to, change_reason)   # bounded add_member alias (names the intent); "covering for X" → change_reason
+  add_coverage(covering_provider, role, from, to, change_reason)   # bounded add_member sibling (names the intent); "covering for X" → change_reason; required dates enforce "coverage is bounded"
   end_member(provider, effective_to, change_reason)   # if provider is the current face & episode active: name a successor face or reject
   close()                                # rejects if already closed
 ```
