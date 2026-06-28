@@ -33,6 +33,8 @@ def test_demo_renders_with_seeded_world(client: TestClient, db_session: Session)
     assert str(world.shoulder) in body
     # At least one scenario title from the page is present (static template text).
     assert "Khan reads the Shoulder episode" in body
+    # The coverage create scenario (exercises the covering_for endpoint) is present.
+    assert "Mike gets short, self-expiring coverage on Shoulder" in body
 
 
 def test_demo_seeded_injects_deterministic_ids(client: TestClient, db_session: Session) -> None:

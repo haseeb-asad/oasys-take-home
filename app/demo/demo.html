@@ -202,11 +202,28 @@ function nameFor(id) {
   return ID_TO_NAME[id] || id;
 }
 
-// The ten non-mutating scenarios, mirroring tests/test_scenarios.py statuses.
+// The eleven scenarios. Ten are non-mutating (reads and denied writes) and mirror
+// the access statuses in tests/test_scenarios.py. The coverage scenario creates a
+// real, short, self-expiring bounded membership via the covering_for path
+// (start_coverage); it auto-expires against the server clock within ~30s, so the
+// active team returns to its seeded state on its own. See tests/test_care_api.py.
 const SHOULDER = SEED.shoulder;
 const GENERAL = SEED.general;
 const CLOSED = SEED.closed;
 const ADD_MIKE = { provider_id: SEED.mike, role: "physician", change_reason: "demo (denied, no mutation)" };
+// Short, self-expiring coverage create: covering_for routes through start_coverage,
+// which makes effective_to mandatory. A ~30s window is computed at play time so the
+// membership auto-expires against the server clock (a bounded coverage cannot be
+// re-ended); the active team returns to its seeded state on its own.
+function coverMikeBody() {
+  return {
+    provider_id: SEED.mike,
+    role: "physiotherapist",
+    covering_for: SEED.khan,
+    effective_to: new Date(Date.now() + 30000).toISOString(),
+    change_reason: "demo: Mike covers the Shoulder episode briefly while Khan is away",
+  };
+}
 
 const SCENARIOS = [
   {
@@ -242,6 +259,18 @@ const SCENARIOS = [
     path: "/v1/episodes/" + SHOULDER + "/clinical-records",
     // No static expected: for a timeBased scenario the expected status is computed at
     // play time from `new Date()` vs the half-open [coverage_from, coverage_to) window.
+  },
+  {
+    id: "s3cover",
+    tag: "S3 coverage",
+    title: "Mike gets short, self-expiring coverage on Shoulder",
+    actor: "khan",
+    proves: "The covering_for marker routes an add-member through start_coverage with a mandatory end date, persisting a real bounded membership that auto-expires against the server clock; no cleanup job ends it.",
+    method: "POST",
+    path: "/v1/episodes/" + SHOULDER + "/members?acting_as=provider",
+    body: coverMikeBody,
+    expected: 201,
+    why: "Khan is the responsible provider on Shoulder, so he holds MANAGE_TEAM and the request is authorized. The covering_for marker routes through episode.start_coverage, which makes effective_to mandatory, and persists a real bounded coverage membership for Mike (201). The window is about 30 seconds, so the membership auto-expires against the server clock (the same half-open rule S3 demonstrates) and the active team returns to its seeded state with no manual end. Replaying just creates another short, self-expiring window.",
   },
   {
     id: "s6deny-read",
@@ -384,9 +413,12 @@ async function ensureLogin(handle) {
 
 async function runRequest(sc, token) {
   const opts = { method: sc.method, headers: { "Authorization": "Bearer " + token } };
-  if (sc.body) {
+  // A scenario body may be a function, evaluated at play time (e.g. a coverage window
+  // computed from the current clock), or a plain static object.
+  const rawBody = typeof sc.body === "function" ? sc.body() : sc.body;
+  if (rawBody) {
     opts.headers["Content-Type"] = "application/json";
-    opts.body = JSON.stringify(sc.body);
+    opts.body = JSON.stringify(rawBody);
   }
   const resp = await fetch(sc.path, opts);
   let data = null;
