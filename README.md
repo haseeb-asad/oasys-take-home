@@ -9,9 +9,11 @@ The scope is intentionally narrow. The care-team model is the center of the
 submission; scheduling, billing, documents, wearables, email delivery, and a full
 onboarding workflow are not built.
 
-**Live demo:** after `./setup.sh`, open `http://127.0.0.1:8000/demo` to watch the
-named access scenarios replay live against the running API. Each step shows the
-decoded token, the request, the response, and the authorization reasoning.
+**Live demo:** after `./setup.sh`, start the API with
+`./.venv/bin/uvicorn app.main:app --reload`, then open
+`http://127.0.0.1:8000/demo` to watch the named access scenarios replay live
+against the running API. Each step shows the decoded token, the request, the
+response, and the authorization reasoning.
 
 **Design docs:** the full rationale ships in `planning/`: the data model and ERD
 (`data-model.md`), the care-team design (`care-team-design.md`), the authorization
